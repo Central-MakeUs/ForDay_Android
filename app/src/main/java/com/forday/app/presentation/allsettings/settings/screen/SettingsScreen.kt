@@ -41,10 +41,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dayn.forday.R
 import com.forday.app.core.designsystem.theme.ForDayTheme
+import com.forday.app.presentation.allsettings.SettingsAction
 import com.forday.app.presentation.allsettings.SettingsViewModel
+
+@Composable
+fun SettingsScreenRoot(
+    onBackClick: () -> Unit = {},
+    onTermsOfServiceClick: () -> Unit = {},
+    onPrivacyPolicyClick: () -> Unit = {},
+    onCancelAccountClick: () -> Unit = {},
+    viewModel: SettingsViewModel,
+) {
+    SettingsScreen(
+        onBackClick = onBackClick,
+        onTermsOfServiceClick = onTermsOfServiceClick,
+        onPrivacyPolicyClick = onPrivacyPolicyClick,
+        onCancelAccountClick = onCancelAccountClick,
+        onLogout = { viewModel.onAction(SettingsAction.Logout) }
+    )
+}
 
 @Composable
 fun SettingsScreen(
@@ -52,7 +69,7 @@ fun SettingsScreen(
     onTermsOfServiceClick: () -> Unit = {},
     onPrivacyPolicyClick: () -> Unit = {},
     onCancelAccountClick: () -> Unit = {},
-    viewModel: SettingsViewModel,
+    onLogout: () -> Unit = {},
 ) {
     var showLogoutDialog by remember { mutableStateOf(false) }
 
@@ -124,7 +141,7 @@ fun SettingsScreen(
             onDismiss = { showLogoutDialog = false },
             onConfirm = {
                 showLogoutDialog = false
-                viewModel.logout()
+                onLogout()
             }
         )
     }
@@ -367,11 +384,6 @@ private fun DialogButton(
 @Composable
 private fun SettingsScreenPreview() {
     ForDayTheme {
-        SettingsScreen(
-            onBackClick = TODO(),
-            onTermsOfServiceClick = TODO(),
-            onPrivacyPolicyClick = TODO(),
-            viewModel = TODO()
-        )
+        SettingsScreen()
     }
 }

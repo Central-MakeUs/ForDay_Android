@@ -42,7 +42,7 @@ fun SplashScreenRoot(
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(splashState.storeUrl))
                 context.startActivity(intent)
             },
-            onDismiss = { splashViewModel.dismiss() }
+            onDismiss = { splashViewModel.onAction(SplashAction.Dismiss) }
         )
     }
 }

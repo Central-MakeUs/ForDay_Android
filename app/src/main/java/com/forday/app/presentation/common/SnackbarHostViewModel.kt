@@ -14,4 +14,8 @@ class SnackbarHostViewModel @Inject constructor(
     fun show(message: String) {
         snackbarManager.show(message)
     }
+
+    fun navigateToLogin() {
+        snackbarManager.navigateToLogin()
+    }
 }

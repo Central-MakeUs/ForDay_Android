@@ -9,14 +9,12 @@ import com.forday.app.domain.usecase.DeleteS3ImageUseCase
 import com.forday.app.domain.usecase.GetMyRoutineRecordDetailUseCase
 import com.forday.app.domain.usecase.GetPresignedUrlUseCase
 import com.forday.app.domain.usecase.GetSpecificRoutineListUseCase
-import com.forday.app.domain.usecase.ModifyHobbyRoutineUseCase
 import com.forday.app.domain.usecase.ModifyPostingUseCase
 import com.forday.app.domain.usecase.UploadImageToS3UseCase
 import com.forday.app.domain.usecase.WriteRoutineUseCase
 import com.forday.app.presentation.BaseViewModel
 import com.forday.app.presentation.common.SnackbarManager
 import com.forday.app.presentation.httpCatch
-import com.forday.app.presentation.model.toModifyPostingUiModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,40 +29,69 @@ import javax.inject.Inject
 @HiltViewModel
 class RecordRoutineViewModel @Inject constructor(
     private val analyticsManager: AnalyticsManager,
-    private val modifyHobbyRoutineUseCase: ModifyHobbyRoutineUseCase,  // 수정용 취미활동
-    private val getSpecificRoutineListUseCase: GetSpecificRoutineListUseCase,  // 특정 취미의 활동 목록 조회
+    private val getSpecificRoutineListUseCase: GetSpecificRoutineListUseCase,
     private val writeRoutineUseCase: WriteRoutineUseCase,
-    private val getPresignedUrlUseCase: GetPresignedUrlUseCase,  // 이미지 업로드용 Presigned URL 발급
+    private val getPresignedUrlUseCase: GetPresignedUrlUseCase,
     private val uploadImageToS3UseCase: UploadImageToS3UseCase,
     private val modifyPostingUseCase: ModifyPostingUseCase,
-    private val deleteS3ImageUseCase: DeleteS3ImageUseCase,   // S3에 등록된 이미지 삭제
+    private val deleteS3ImageUseCase: DeleteS3ImageUseCase,
     private val getMyRoutineRecordDetailUseCase: GetMyRoutineRecordDetailUseCase,
     private val snackbarManager: SnackbarManager,
-) : BaseViewModel<Unit>() {
+) : BaseViewModel<RecordRoutineSideEffect>() {
 
     private val _uiState: MutableStateFlow<RecordRoutineUiState> = MutableStateFlow(RecordRoutineUiState())
     val uiState: StateFlow<RecordRoutineUiState> = _uiState.toStateIn()
 
-    fun recordRoutine(
+    // ── MVI 단일 진입점 ──────────────────────────────────────────────
+    fun onAction(action: RecordRoutineAction) {
+        when (action) {
+            is RecordRoutineAction.FetchRoutineList -> fetchSpecificRoutineList(action.hobbyId, action.size)
+            is RecordRoutineAction.LoadRecordDetail -> getMyRoutineRecordDetail(action.recordId)
+            is RecordRoutineAction.WriteRoutine -> recordRoutine(
+                action.routineId, action.sticker, action.memo,
+                action.imageUrl, action.visibility, action.recordId
+            )
+            is RecordRoutineAction.ModifyPosting -> modifyPosting(
+                action.recordId, action.routineId, action.sticker,
+                action.memo, action.imageUrl, action.visibility
+            )
+            is RecordRoutineAction.GetPresignedUrl -> getPresignedUrl(action.images)
+            is RecordRoutineAction.UploadImageToS3 -> uploadImageToS3(
+                action.file, action.uploadUrl, action.contentType, action.order
+            )
+            is RecordRoutineAction.DeleteS3Image -> deleteS3Image(action.imageUrl)
+        }
+    }
+
+    // ── Analytics (Screen에서 직접 호출) ─────────────────────────────
+    fun logEvent(logEvent: String) {
+        analyticsManager.logEvent(logEvent)
+    }
+
+    fun logEvent(event: AnalyticsEvent) {
+        analyticsManager.logEvent(event)
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────
+
+    private fun recordRoutine(
         routineId: Long,
         sticker: String,
         memo: String,
         imageUrl: String,
         visibility: String,
-        recordId: Int? = null,
-        onSuccess: (Long) -> Unit
-    ) = viewModelScope.launch {   // 취미 활동 기록
+        recordId: Int? = null
+    ) = viewModelScope.launch {
         flow {
             emit(writeRoutineUseCase(routineId, sticker, memo, imageUrl, visibility))
         }.httpCatch(tag = "recordRoutine") { errorData ->
             snackbarManager.show(errorData.message)
-        }
-            .collect { data ->
-                val uiModel = data.data.toPresentation()
-                _uiState.update {
-                    it.copy(
-                        recordDetail = it.recordDetail.copy(
-                        routineRecordId = recordId ?: uiModel.routineRecordId,  //수정 모드 : recordId, 신규 : data.routineRecordId
+        }.collect { data ->
+            val uiModel = data.data.toPresentation()
+            _uiState.update {
+                it.copy(
+                    recordDetail = it.recordDetail.copy(
+                        routineRecordId = recordId ?: uiModel.routineRecordId,
                         routineContent = uiModel.routineContent,
                         stickerUrl = uiModel.stickerUrl,
                         memo = uiModel.memo,
@@ -74,55 +101,33 @@ class RecordRoutineViewModel @Inject constructor(
                     )
                 )
             }
-
-            // 콜백 - 작성한 게시글로 이동하기 위함
-            onSuccess(uiModel.routineRecordId.toLong())
+            _sideEffectChannel.send(RecordRoutineSideEffect.WriteSuccess(uiModel.routineRecordId.toLong()))
         }
     }
 
-    fun modifyPosting(recordId: Int, routineId: Int, sticker: String, memo: String, imageUrl: String, visibility: String) // 활동 기록 수정
-    = viewModelScope.launch {
+    private fun modifyPosting(
+        recordId: Int, routineId: Int, sticker: String,
+        memo: String, imageUrl: String, visibility: String
+    ) = viewModelScope.launch {
         flow {
             emit(modifyPostingUseCase(recordId, routineId, sticker, memo, imageUrl, visibility))
         }.httpCatch(tag = "modifyPosting") { errorData ->
             snackbarManager.show(errorData.message)
         }.collect { data ->
-            _uiState.update {
-                it.copy(
-                    modifyPostingUiModel = data.toModifyPostingUiModel()
+            _sideEffectChannel.send(
+                RecordRoutineSideEffect.ModifySuccess(
+                    (_uiState.value.recordDetail.routineRecordId.takeIf { it > 0 }
+                        ?: data.activityId).toLong()
                 )
-            }
+            )
         }
     }
 
-    fun resetModifyPostingUiModel() {
-        _uiState.update { state ->
-            state.copy(modifyPostingUiModel = null)
-        }
-    }
-
-    fun getMyRoutineRecordDetail(recordId: Int) = viewModelScope.launch {  // 수정 모드. 수정할 게시글 데이터 불러오기
-        if (recordId == null) {
-            Timber.w("getMyRoutineRecordDetail: recordId is null")
-            _uiState.update {
-                it.copy(
-                    errorData = ErrorDataUiState(
-                        message = "잘못된 접근입니다.",
-                        errorType = ErrorDataUiState.ErrorType.TYPE_BACK
-                    )
-                )
-            }
-            return@launch
-        }
-
+    private fun getMyRoutineRecordDetail(recordId: Int) = viewModelScope.launch {
         flow {
             emit(getMyRoutineRecordDetailUseCase(recordId))
         }.httpCatch(tag = "getMyRoutineRecordDetail") { errorData ->
-            _uiState.update {
-                it.copy(
-                    errorData = errorData
-                )
-            }
+            _uiState.update { it.copy(errorData = errorData) }
         }.collect { data ->
             data?.let { detail ->
                 _uiState.update { state ->
@@ -140,7 +145,7 @@ class RecordRoutineViewModel @Inject constructor(
         }
     }
 
-    fun fetchSpecificRoutineList(hobbyId: Long?, size: Int? = null) = viewModelScope.launch {  // 드롭 다운용 특정 취미 활동 목록 조회
+    private fun fetchSpecificRoutineList(hobbyId: Long?, size: Int?) = viewModelScope.launch {
         if (hobbyId == null) {
             Timber.w("fetchSpecificRoutineList: hobbyId is null")
             _uiState.update {
@@ -157,15 +162,10 @@ class RecordRoutineViewModel @Inject constructor(
         flow {
             emit(getSpecificRoutineListUseCase(hobbyId, size))
         }.httpCatch(tag = "fetchSpecificRoutineList") { errorData ->
-            _uiState.update {
-                it.copy(
-                    errorData = errorData
-                )
-            }
+            _uiState.update { it.copy(errorData = errorData) }
         }.collect { data ->
             _uiState.update { state ->
                 state.copy(
-                    isLoading = false,
                     recordDetail = state.recordDetail.copy(
                         routineList = data.data.routines.map { it.toUiModel() }
                     ),
@@ -175,21 +175,19 @@ class RecordRoutineViewModel @Inject constructor(
         }
     }
 
-    fun getPresignedUrl(images: List<Map<String, Any>>) = viewModelScope.launch {  // 이미지 업로드용 Presigned URL 발급
+    private fun getPresignedUrl(images: List<Map<String, Any>>) = viewModelScope.launch {
         flow {
             emit(getPresignedUrlUseCase(images).data)
         }.httpCatch(tag = "getPresignedUrl") { errorData ->
             snackbarManager.show(errorData.message)
         }.collect { data ->
             _uiState.update { state ->
-                state.copy(
-                    imageUploadState = data.toUiModel()
-                )
+                state.copy(imageUploadState = data.toUiModel())
             }
         }
     }
 
-    fun deleteS3Image(imageUrl: String) = viewModelScope.launch {  // S3에 업로드한 이미지 삭제
+    private fun deleteS3Image(imageUrl: String) = viewModelScope.launch {
         flow {
             emit(deleteS3ImageUseCase(imageUrl))
         }.httpCatch(tag = "deleteS3Image") { errorData ->
@@ -197,12 +195,8 @@ class RecordRoutineViewModel @Inject constructor(
         }.collect { }
     }
 
-
-    fun uploadImageToS3(     // S3에 이미지 업로드 TODO 에러 핸들링 재수정 해야 함
-        file: File,
-        uploadUrl: String,
-        contentType: String,
-        order: Int
+    private fun uploadImageToS3(
+        file: File, uploadUrl: String, contentType: String, order: Int
     ) = viewModelScope.launch {
         flow {
             updateImageUploadStatus(order, isUploading = true)
@@ -215,7 +209,7 @@ class RecordRoutineViewModel @Inject constructor(
         }
     }
 
-    private fun updateImageUploadStatus(   // 특정 이미지의 업로드 상태 업데이트
+    private fun updateImageUploadStatus(
         order: Int,
         isUploading: Boolean = false,
         isSuccess: Boolean = false
@@ -225,10 +219,7 @@ class RecordRoutineViewModel @Inject constructor(
                 imageUploadState = state.imageUploadState.copy(
                     images = state.imageUploadState.images.map { item ->
                         if (item.order == order) {
-                            item.copy(
-                                isUploading = isUploading,
-                                isSuccess = isSuccess
-                            )
+                            item.copy(isUploading = isUploading, isSuccess = isSuccess)
                         } else {
                             item
                         }
@@ -237,13 +228,4 @@ class RecordRoutineViewModel @Inject constructor(
             )
         }
     }
-
-    fun logEvent(logEvent: String) {
-        analyticsManager.logEvent(logEvent)
-    }
-
-    fun logEvent(event: AnalyticsEvent) {
-        analyticsManager.logEvent(event)
-    }
-
 }

@@ -59,6 +59,8 @@ import com.forday.app.core.designsystem.component.dropdown.VisibilitySelector
 import com.forday.app.presentation.mypage.routinedetail.RoutineRecordDetailUiModel
 import com.forday.app.core.designsystem.component.clickable.rememberThrottledClick
 import com.forday.app.core.designsystem.component.clickable.NoRippleInteractionSource
+import com.forday.app.presentation.record.RecordRoutineAction
+import com.forday.app.presentation.record.RecordRoutineSideEffect
 import com.forday.app.presentation.record.RecordRoutineViewModel
 import com.forday.app.presentation.record.RoutineUiModel
 import timber.log.Timber
@@ -88,6 +90,17 @@ fun RecordRoutineScreenRoot(
     viewModel.logEvent(AnalyticsEvents.RECORD_ROUTINE_SCREEN)
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val onAction = viewModel::onAction
+
+    // SideEffect 처리
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is RecordRoutineSideEffect.WriteSuccess -> onComplete(effect.recordId)
+                is RecordRoutineSideEffect.ModifySuccess -> onComplete(effect.recordId)
+            }
+        }
+    }
 
     LaunchedEffect(entryPoint) {
         if (entryPoint.isNotEmpty()) {
@@ -112,7 +125,7 @@ fun RecordRoutineScreenRoot(
     LaunchedEffect(Unit) {
         val effectiveHobbyId = hobbyId ?: modifyData?.hobbyId?.toLong()
         Timber.d("fetchSpecificRoutineList - hobbyId: $hobbyId, modifyData.hobbyId: ${modifyData?.hobbyId}, effectiveHobbyId: $effectiveHobbyId")
-        viewModel.fetchSpecificRoutineList(hobbyId = effectiveHobbyId)
+        onAction(RecordRoutineAction.FetchRoutineList(hobbyId = effectiveHobbyId))
     }
 
     var stickers by remember {
@@ -146,7 +159,7 @@ fun RecordRoutineScreenRoot(
     // ✅ 수정모드 초기화: memo, visibility, sticker, existingImageUrls
     LaunchedEffect(modifyMode, modifyData) {
         if (modifyMode && modifyData != null) {
-            viewModel.getMyRoutineRecordDetail(modifyData.recordId)
+            onAction(RecordRoutineAction.LoadRecordDetail(modifyData.recordId))
             // memo
             memoText = modifyData.memo
 
@@ -199,7 +212,7 @@ fun RecordRoutineScreenRoot(
         }
 
         Timber.d("Requesting presigned URLs for ${imageInfoList.size} images immediately after selection")
-        viewModel.getPresignedUrl(imageInfoList)
+        onAction(RecordRoutineAction.GetPresignedUrl(imageInfoList))
     }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -281,12 +294,12 @@ fun RecordRoutineScreenRoot(
                             val file = uriToJpegFile(context, uri)
 
                             if (file != null) {
-                                viewModel.uploadImageToS3(
+                                onAction(RecordRoutineAction.UploadImageToS3(
                                     file = file,
                                     uploadUrl = presignedItem.uploadUrl,
                                     contentType = getContentType(context, uri),
                                     order = presignedItem.order
-                                )
+                                ))
                             } else {
                                 Timber.e("Failed to convert URI to File: $uri")
                             }
@@ -301,20 +314,6 @@ fun RecordRoutineScreenRoot(
                 }
             }
         }
-    }
-
-    // ✅ 수정모드: modifyPosting 결과 관찰 → 성공 시 onComplete 호출
-    LaunchedEffect(state.modifyPostingUiModel) {
-        val result = state.modifyPostingUiModel ?: return@LaunchedEffect
-
-        val recordIdForNavigation =
-            state.recordDetail.routineRecordId.takeIf { it > 0 }
-                ?: modifyData?.recordId
-                ?: result.activityId
-
-        onComplete(recordIdForNavigation.toLong())
-        Timber.e("@@@@@@@@########## "+recordIdForNavigation.toLong())
-        viewModel.resetModifyPostingUiModel()
     }
 
     RecordRoutineScreen(
@@ -359,7 +358,7 @@ fun RecordRoutineScreenRoot(
                 state.imageUploadState?.images?.getOrNull(removeIndex)?.let { uploadedImage ->
                     if (uploadedImage.isSuccess && uploadedImage.fileUrl.isNotEmpty()) {
                         Timber.d("Deleting S3 image at index $removeIndex: ${uploadedImage.fileUrl}")
-                        viewModel.deleteS3Image(uploadedImage.fileUrl)
+                        onAction(RecordRoutineAction.DeleteS3Image(uploadedImage.fileUrl))
                     }
                 }
 
@@ -420,34 +419,32 @@ fun RecordRoutineScreenRoot(
                 val recordIdForRequest =
                     state.recordDetail.routineRecordId.takeIf { it > 0 } ?: modifyData.recordId
 
-                viewModel.modifyPosting(
+                onAction(RecordRoutineAction.ModifyPosting(
                     recordId = recordIdForRequest,
                     routineId = routineId.toInt(),
                     sticker = stickerFileName,
                     memo = memoText,
                     imageUrl = imageUrls,
                     visibility = visibilityValue
-                )
+                ))
             } else {
                 Timber.d("Calling writeRoutine - routineId: $routineId, sticker: $stickerFileName, memo: $memoText, imageUrl: $imageUrls, visibility: $visibilityValue")
 
-                viewModel.recordRoutine(
+                viewModel.logEvent(AnalyticsEvents.recordCreated(
+                    entryPoint = entryPoint,
+                    hobbyName = hobbyName,
+                    activityName = state.recordDetail.routineList.getOrNull(selectedRoutineIndex ?: 0)?.content ?: "",
+                    hasPhoto = selectedImages.isNotEmpty(),
+                    hasMemo = memoText.isNotBlank()
+                ))
+
+                onAction(RecordRoutineAction.WriteRoutine(
                     routineId = routineId,
                     sticker = stickerFileName,
                     memo = memoText,
                     imageUrl = imageUrls,
-                    visibility = visibilityValue,
-                    onSuccess = { newRecordId ->
-                        viewModel.logEvent(AnalyticsEvents.recordCreated(
-                            entryPoint = entryPoint,
-                            hobbyName = hobbyName,
-                            activityName = state.recordDetail.routineList.getOrNull(selectedRoutineIndex ?: 0)?.content ?: "",
-                            hasPhoto = selectedImages.isNotEmpty(),
-                            hasMemo = memoText.isNotBlank()
-                        ))
-                        onComplete(newRecordId)
-                    }
-                )
+                    visibility = visibilityValue
+                ))
             }
         }
     )

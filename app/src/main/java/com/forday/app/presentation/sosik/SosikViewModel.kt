@@ -8,14 +8,12 @@ import com.forday.app.core.logger.analytics.AnalyticsManager
 import com.forday.app.core.util.UserMessageCategory
 import com.forday.app.core.util.toUserMessage
 import com.forday.app.domain.usecase.CancelMyReactionUseCase
-import com.forday.app.domain.usecase.GetMyRoutineRecordDetailUseCase
 import com.forday.app.domain.usecase.GetPeopleRoutineListUseCase
 import com.forday.app.domain.usecase.ReactionToRoutinePostingUseCase
 import com.forday.app.domain.usecase.SwitchAccountUseCase
 import com.forday.app.presentation.BaseViewModel
 import com.forday.app.presentation.common.SnackbarManager
 import com.forday.app.presentation.httpCatch
-import com.forday.app.presentation.mypage.MyPageSideEffect
 import com.forday.app.presentation.sosik.model.SosikContentUiState
 import com.forday.app.presentation.sosik.model.SosikUiState
 import com.forday.app.presentation.sosik.model.toPresentation
@@ -39,7 +37,6 @@ class SosikViewModel @Inject constructor(
     private val getPeopleRoutineListUseCase: GetPeopleRoutineListUseCase,
     private val switchAccountUseCase: SwitchAccountUseCase,
     private val userLocalDataSource: UserLocalDataSource,
-    private val getMyRoutineRecordDetailUseCase: GetMyRoutineRecordDetailUseCase,
     private val reactionToRoutinePostingUseCase: ReactionToRoutinePostingUseCase,
     private val cancelMyReactionUseCase: CancelMyReactionUseCase,
 ) : BaseViewModel<SosikSideEffect>() {
@@ -47,22 +44,47 @@ class SosikViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SosikUiState())
     val uiState: StateFlow<SosikUiState> = _uiState.toStateIn()
 
-    fun fetchPeopleRoutineList(
-        hobbyId: Long? = null,   // 취미 ID (null이면 가장 최근 취미로 조회)
-        lastRecordId: Long? = null,  // 마지막으로 조회된 기록 ID (null이면 처음부터 조회)
-        size: Long? = 20L,  // 기본 20
-        keyword: String? = null,   // 검색 키워드
-        storyFilterType: String? = "ALL"  // 기본 ALL
+    // ── MVI 단일 진입점 ──────────────────────────────────────────────
+    fun onAction(action: SosikAction) {
+        when (action) {
+            is SosikAction.FetchRoutineList -> fetchPeopleRoutineList(
+                action.hobbyId, action.lastRecordId, action.size, action.keyword, action.storyFilterType
+            )
+            is SosikAction.LoadMore -> loadMorePeopleRoutineList()
+            is SosikAction.SelectTab -> selectTab(action.index)
+            is SosikAction.GetUserLoginInfo -> getUserLoginInfo()
+            is SosikAction.MarkGuestBottomSheetShown -> markGuestBottomSheetShown()
+            is SosikAction.ToggleAwesome -> toggleAwesome(action.recordId)
+            is SosikAction.ReactionToPosting -> reactionToPosting(action.recordId, action.reactionType)
+            is SosikAction.CancelReaction -> cancelReaction(action.recordId, action.reactionType)
+            is SosikAction.LoginWithKakao -> loginWithKakao(action.context, action.socialType)
+        }
+    }
+
+    // ── Analytics ─────────────────────────────────────────────────────
+    fun logEvent(logEvent: String) {
+        analyticsManager.logEvent(logEvent)
+    }
+
+    fun logEvent(event: AnalyticsEvent) {
+        analyticsManager.logEvent(event)
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────
+
+    private fun fetchPeopleRoutineList(
+        hobbyId: Long? = null,
+        lastRecordId: Long? = null,
+        size: Long? = 20L,
+        keyword: String? = null,
+        storyFilterType: String? = "ALL"
     ) = viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true) }
-        Timber.e("@@@@@@@#########data  호출 전"+hobbyId+", "+lastRecordId+", "+size+", "+keyword+", "+storyFilterType)
         flow {
             emit(getPeopleRoutineListUseCase(hobbyId, lastRecordId, size, keyword, storyFilterType))
         }.httpCatch(tag = "fetchPeopleRoutineList") { errorData ->
-            Timber.e("@@@@@@@#########data  errorData "+errorData)
             _uiState.update { it.copy(isLoading = false, errorData = errorData) }
         }.collect { data ->
-            Timber.e("@@@@@@@#########data "+data)
             val tabList = data.data?.tabInfo?.map { it.toPresentation() } ?: emptyList()
             val recordList = data.data?.recordList?.map { it.toPresentation() }
                 ?.distinctBy { it.recordId }
@@ -82,7 +104,7 @@ class SosikViewModel @Inject constructor(
         }
     }
 
-    fun loadMorePeopleRoutineList() {
+    private fun loadMorePeopleRoutineList() {
         val current = _uiState.value
         if (!current.content.hasNext || current.isLoadingMore) return
 
@@ -111,14 +133,14 @@ class SosikViewModel @Inject constructor(
         }
     }
 
-    fun selectTab(index: Int) {
+    private fun selectTab(index: Int) {
         val selectedHobbyId = if (index == 0) null
             else _uiState.value.content.tabList.getOrNull(index - 1)?.hobbyId
         _uiState.update { it.copy(selectedTabIndex = index) }
         fetchPeopleRoutineList(hobbyId = selectedHobbyId)
     }
 
-    fun toggleAwesome(recordId: Long) {
+    private fun toggleAwesome(recordId: Long) {
         _uiState.update { state ->
             state.copy(
                 content = state.content.copy(
@@ -131,17 +153,17 @@ class SosikViewModel @Inject constructor(
         }
     }
 
-    fun getUserLoginInfo() = viewModelScope.launch {
+    private fun getUserLoginInfo() = viewModelScope.launch {
         userLocalDataSource.getSocialType().collect { socialType ->
             _uiState.update { it.copy(socialType = socialType) }
         }
     }
 
-    fun markGuestBottomSheetShown() {
+    private fun markGuestBottomSheetShown() {
         _uiState.update { it.copy(hasShownGuestBottomSheet = true) }
     }
 
-    fun loginWithKakao(context: Context, socialType: String) {
+    private fun loginWithKakao(context: Context, socialType: String) {
         val kakao = UserApiClient.instance
         val callback: (OAuthToken?, Throwable?) -> Unit = { token, error ->
             if (error != null || token == null) {
@@ -182,17 +204,7 @@ class SosikViewModel @Inject constructor(
             }
     }
 
-    fun getRoutineRecordDetail(recordId: Int) = viewModelScope.launch {
-        flow {
-            emit(getMyRoutineRecordDetailUseCase(recordId))
-        }.httpCatch(tag = "getRoutineRecordDetail") { errorData ->
-            _uiState.update { it.copy(isLoading = false, errorData = errorData) }
-        }.collect { data ->
-            _uiState.update { it.copy(isLoading = false, routineDetail = data) }
-        }
-    }
-
-    fun reactionToPosting(recordId: Int, reactionType: String) = viewModelScope.launch {
+    private fun reactionToPosting(recordId: Int, reactionType: String) = viewModelScope.launch {
         flow {
             emit(reactionToRoutinePostingUseCase(recordId, reactionType))
         }.httpCatch(tag = "reactionToPosting") { errorData ->
@@ -200,19 +212,11 @@ class SosikViewModel @Inject constructor(
         }.collect { }
     }
 
-    fun cancelReaction(recordId: Int, reactionType: String) = viewModelScope.launch {
+    private fun cancelReaction(recordId: Int, reactionType: String) = viewModelScope.launch {
         flow {
             emit(cancelMyReactionUseCase(recordId, reactionType))
         }.httpCatch(tag = "cancelReaction") { errorData ->
             _uiState.update { it.copy(errorData = errorData) }
         }.collect { }
-    }
-
-    fun logEvent(logEvent: String) {
-        analyticsManager.logEvent(logEvent)
-    }
-
-    fun logEvent(event: AnalyticsEvent) {
-        analyticsManager.logEvent(event)
     }
 }

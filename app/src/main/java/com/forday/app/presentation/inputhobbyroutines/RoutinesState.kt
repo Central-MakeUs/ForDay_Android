@@ -9,14 +9,11 @@ import kotlinx.serialization.Serializable
 
 data class RoutinesState(
     val hobbymateRoutines: List<String> = emptyList(),
-    val directInputRoutines: List<String> = emptyList(),
     val aiRoutineList: List<AiRoutineItemState> = emptyList(),
     val aiCallCount: Int = 0,
     val recommendedText: String = "",
-    val hobbyId: Long? = null,
     val selectedHobbyName: String? = null,
     val isLoading: Boolean = false,
-    val error: String? = null,
     val routineId: Int? = null,
     val nickname: String? = null,
     val selectedAiRoutine: AiRoutineItemState? = null,

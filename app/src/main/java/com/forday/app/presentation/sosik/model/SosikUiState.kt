@@ -1,7 +1,6 @@
 package com.forday.app.presentation.sosik.model
 
 import com.forday.app.core.designsystem.component.state.ErrorDataUiState
-import com.forday.app.domain.model.RoutineRecordDetailDomain
 import com.forday.app.domain.model.SosikRecordDomain
 import com.forday.app.domain.model.SosikTabInfoDomain
 
@@ -13,7 +12,6 @@ data class SosikUiState(
     val content: SosikContentUiState = SosikContentUiState(),
     val socialType: String? = null,
     val hasShownGuestBottomSheet: Boolean = false,
-    val routineDetail: RoutineRecordDetailDomain? = null
 )
 
 data class SosikContentUiState(

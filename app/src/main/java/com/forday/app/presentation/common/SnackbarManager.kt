@@ -20,4 +20,8 @@ class SnackbarManager @Inject constructor() {
         if (message.isBlank()) return
         _sideEffects.tryEmit(AppSideEffect.ShowSnackbar(message))
     }
+
+    fun navigateToLogin() {
+        _sideEffects.tryEmit(AppSideEffect.NavigateToLogin)
+    }
 }

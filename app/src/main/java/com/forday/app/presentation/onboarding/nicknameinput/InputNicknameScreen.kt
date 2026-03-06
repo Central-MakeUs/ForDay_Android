@@ -25,14 +25,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.forday.app.core.designsystem.component.clickable.rememberThrottledClick
 import com.forday.app.core.designsystem.component.clickable.NoRippleInteractionSource
 import com.forday.app.core.designsystem.theme.ForDayTheme
 import com.forday.app.core.logger.analytics.AnalyticsEvents
-import com.forday.app.presentation.onboarding.OnboardingViewModel
-import com.forday.app.presentation.onboarding.OnboardingUiState
 import timber.log.Timber
 
 // 반응형 Dimensions
@@ -87,40 +84,46 @@ data class NicknameScreenDimensions(
 @Composable
 fun InputNicknameScreenRoot(
     onNext: () -> Unit,
-    viewModel: OnboardingViewModel
+    viewModel: NicknameViewModel,
 ) {
     viewModel.logEvent(AnalyticsEvents.NICKNAME_INPUT_SCREEN)
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // ✅ 닉네임 등록 성공 시 자동으로 다음 화면으로
-    LaunchedEffect(uiState.nicknameRegisterSuccess) {
-        if (uiState.nicknameRegisterSuccess) {
-            viewModel.saveIsNicknameSet(true)
-            onNext()
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is NicknameSideEffect.RegisterSuccess -> {
+                    viewModel.onAction(NicknameAction.SaveIsNicknameSet(true))
+                    onNext()
+                }
+            }
         }
     }
 
     InputNicknameScreen(
-        uiState = uiState,
-        onNext = {
+        nicknameCheckMessage = uiState.nicknameCheckMessage,
+        isNicknameChecked = uiState.isNicknameChecked,
+        isLoading = uiState.isLoading,
+        onNext = { nickname ->
             viewModel.logEvent(AnalyticsEvents.NICKNAME_REGISTER_CLICK)
-            viewModel.registerNickname(uiState.selectedHobbyName)
-            // ✅ 여기서는 API 호출만! navigation은 LaunchedEffect에서 처리
+            viewModel.onAction(NicknameAction.RegisterNickname(nickname))
         },
         onCheckDuplicate = { nickname ->
             viewModel.logEvent(AnalyticsEvents.currentInputNickname(nickname))
-            viewModel.getIsNicknameDuplicate(nickname)
+            viewModel.onAction(NicknameAction.CheckNicknameDuplicate(nickname))
         },
         onNicknameChange = {
-            viewModel.resetNicknameCheck()
+            viewModel.onAction(NicknameAction.ResetNicknameCheck)
         }
     )
 }
 
 @Composable
 fun InputNicknameScreen(
-    uiState: OnboardingUiState = OnboardingUiState(),
-    onNext: () -> Unit = {},
+    nicknameCheckMessage: String = "",
+    isNicknameChecked: Boolean = false,
+    isLoading: Boolean = false,
+    onNext: (String) -> Unit = {},
     onCheckDuplicate: (String) -> Unit = {},
     onNicknameChange: () -> Unit = {}
 ) {
@@ -132,18 +135,17 @@ fun InputNicknameScreen(
     var isDuplicateChecked by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
 
-    // ✅ UiState 변경 시마다 메시지 업데이트
-    LaunchedEffect(uiState.nicknameCheckMessage, uiState.isNicknameChecked) {
-        if (uiState.nicknameCheckMessage.isNotEmpty()) {
-            when (uiState.isNicknameChecked) {
+    LaunchedEffect(nicknameCheckMessage, isNicknameChecked) {
+        if (nicknameCheckMessage.isNotEmpty()) {
+            when (isNicknameChecked) {
                 true -> {
-                    successMessage = uiState.nicknameCheckMessage
+                    successMessage = nicknameCheckMessage
                     errorMessage = ""
                     isDuplicateChecked = true
                     focusManager.clearFocus()
                 }
                 false -> {
-                    errorMessage = uiState.nicknameCheckMessage
+                    errorMessage = nicknameCheckMessage
                     successMessage = ""
                     isDuplicateChecked = true
                 }
@@ -224,7 +226,7 @@ fun InputNicknameScreen(
                 nickname = nickname,
                 errorMessage = errorMessage,
                 successMessage = successMessage,
-                isLoading = uiState.isLoading,
+                isLoading = isLoading,
                 dimensions = dimensions,
                 onNicknameChange = { newValue ->
                     if (newValue.length <= 10) {
@@ -256,15 +258,13 @@ fun InputNicknameScreen(
             )
         }
 
-        Timber.e("@#####@@@!!@! $successMessage, ${uiState.isNicknameChecked}")
+        Timber.e("@#####@@@!!@! $successMessage, $isNicknameChecked")
 
-        // Bottom Button
-        val isNicknameValid = successMessage.isNotEmpty() &&
-                uiState.isNicknameChecked == true
+        val isNicknameValid = successMessage.isNotEmpty() && isNicknameChecked
 
         BottomButton(
             enabled = isNicknameValid,
-            onClick = onNext,
+            onClick = { onNext(nickname) },
             dimensions = dimensions
         )
     }

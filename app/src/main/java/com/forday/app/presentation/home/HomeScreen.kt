@@ -144,10 +144,12 @@ fun HomeScreenRoot(
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var errorToastMessage by remember { mutableStateOf<String?>(null) }
 
+    val onAction: (HomeAction) -> Unit = viewModel::onAction
+
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            viewModel.fetchHomeHobbyData()
-            viewModel.logEvent(AnalyticsEvents.HOME_SCREEN)
+            onAction(HomeAction.LoadHomeData())
+            onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.HOME_SCREEN))
         }
     }
 
@@ -155,25 +157,20 @@ fun HomeScreenRoot(
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             viewModel.sideEffect.collect { effect ->
                 when (effect) {
-                    is HomeSideEffect.CreateRoutinesSuccess -> {
+                    is HomeSideEffect.ShowToast -> {
                         toastMessage = effect.message
                     }
-                    is HomeSideEffect.CreateRoutinesError -> {
+                    is HomeSideEffect.ShowErrorToast -> {
                         errorToastMessage = effect.message
                     }
                 }
             }
         }
     }
-    Timber.e("@@@@@@@@@@@@@@@ aiCallRemainingCount : "+state.aiCallRemainingCount+", "+state.aiCallRemaining)
+
     LaunchedEffect(currentHobbyId) {
         onCurrentHobbyIdChanged(currentHobbyId)
-        if (currentHobbyId != null) {
-            Timber.e("@#@#@#@#@###@#@ "+currentHobbyId)
-            viewModel.fetchSpecificRoutineList(currentHobbyId, 5)
-            viewModel.fetchStickerHistory(currentHobbyId, 28, null)
-        }
-        viewModel.getUserNickname()
+        onAction(HomeAction.SelectHobby(currentHobbyId))
     }
 
     val isRecordedToday = state.stickerInfo?.activityRecordedToday == true &&
@@ -185,8 +182,7 @@ fun HomeScreenRoot(
     }
 
     LaunchedEffect(state.routineId) {
-        viewModel.fetchHomeHobbyData(currentHobbyId)
-        viewModel.fetchStickerHistory(hobbyId = currentHobbyId, size = 28, page = null)
+        onAction(HomeAction.SelectHobby(currentHobbyId))
     }
 
     val currentHobbyName = state.inProgressHobbies.find { it.isCurrent }?.name
@@ -199,26 +195,25 @@ fun HomeScreenRoot(
     Box(modifier = modifier.fillMaxSize()) {
         HomeScreen(
             onRoutineCreate = { aiCallRemaining ->
-                viewModel.logEvent(AnalyticsEvents.HOME_ADD_HOBBY_ACTIVITY)
+                onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.HOME_ADD_HOBBY_ACTIVITY))
                 onRoutineCreate(currentHobbyId, aiCallRemaining, currentHobbyName)
             },
             onShowRoutineList = {
-                viewModel.logEvent(AnalyticsEvents.HOME_SHOW_HOBBY_ACTIVITY_LIST)
+                onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.HOME_SHOW_HOBBY_ACTIVITY_LIST))
                 onModifyRoutine(currentHobbyId, currentHobbyName)
             },
             onRoutineSelected = { routineId ->
-                viewModel.selectRoutine(routineId)
+                onAction(HomeAction.SelectRoutine(routineId))
             },
             onRecordRoutine = { entryPoint ->
-                viewModel.logEvent(AnalyticsEvents.HOME_CLICK_EMPTY_STICKER)
+                onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.HOME_CLICK_EMPTY_STICKER))
                 val lastSticker = state.stickers.lastOrNull()
                 val isLastStickerDeleted = lastSticker?.deleted == true
                 if (state.stickerInfo?.activityRecordedToday == true && !isLastStickerDeleted) {
-                    showAlreadyRecordedDialog = true // 이미 활동 기록했다는 팝업 표시
+                    showAlreadyRecordedDialog = true
                 } else {
                     onRecordRoutine(currentHobbyId, entryPoint, currentHobbyName, state.routinePreview?.content)
                 }
-
             },
             onMoveRecordedRoutine = onMoveRecordedRoutine,
             onSettingsItemClick = { menuItem ->
@@ -228,17 +223,11 @@ fun HomeScreenRoot(
                     SettingsMenuItem.ALL_SETTINGS -> onAllSettingsClick()
                 }
             },
-            onStickerPageNext = viewModel::nextStickerPage,
-            onStickerPagePrevious = viewModel::previousStickerPage,
+            onStickerPageNext = { onAction(HomeAction.NextStickerPage) },
+            onStickerPagePrevious = { onAction(HomeAction.PreviousStickerPage) },
             onAddHobbyClick = onAddHobbyClick,
-            onCurrentHobbyClick = { hobbyId ->
-                viewModel.fetchHomeHobbyData(hobbyId)
-                viewModel.fetchStickerHistory(hobbyId, 28, null)
-            },
-            onOtherHobbyClick = { hobbyId ->
-                viewModel.fetchHomeHobbyData(hobbyId)
-                viewModel.fetchStickerHistory(hobbyId, 28, null)
-            },
+            onCurrentHobbyClick = { hobbyId -> onAction(HomeAction.SelectHobby(hobbyId)) },
+            onOtherHobbyClick = { hobbyId -> onAction(HomeAction.SelectHobby(hobbyId)) },
             modifier = Modifier.fillMaxSize(),
             toastMessage = toastMessage,
             onDismissToast = { toastMessage = null },
@@ -248,17 +237,16 @@ fun HomeScreenRoot(
             state = state,
             currentHobbyId = currentHobbyId,
             onCreateRoutine = {
-                viewModel.logEvent(AnalyticsEvents.activityAddEntryClicked("home_fab", currentHobbyName))
+                onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.activityAddEntryClicked("home_fab", currentHobbyName)))
                 onRoutineCreate(currentHobbyId, state.aiCallRemaining, currentHobbyName)
             },
-            viewModel = viewModel
+            onAction = onAction
         )
         if (showAlreadyRecordedDialog) {
             RoutineOnlyOneHaveDialog(
                 onDismiss = { showAlreadyRecordedDialog = false },
                 onViewRecords = {
                     showAlreadyRecordedDialog = false
-                    // ✅ 오늘 기록한 내용으로 이동 (마지막 스티커 또는 오늘 날짜의 기록)
                     val todayRecordId = state.stickers.lastOrNull()?.activityRecordId
                     if (todayRecordId != null) {
                         onMoveRecordedRoutine(todayRecordId)
@@ -266,7 +254,7 @@ fun HomeScreenRoot(
                 }
             )
         }
-    } // Box
+    }
 }
 
 @Composable
@@ -291,7 +279,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     state: HomeState,
     currentHobbyId: Long?,
-    viewModel: HomeViewModel,
+    onAction: (HomeAction) -> Unit,
 ) {
     var isRefreshing by remember { mutableStateOf(false) }
     var refreshTriggered by remember { mutableStateOf(false) }
@@ -327,8 +315,7 @@ fun HomeScreen(
             refreshTriggered = true
             refreshStartStickerSize = state.stickers.size
             refreshStartMillis = System.currentTimeMillis()
-            viewModel.fetchHomeHobbyData(currentHobbyId)
-            viewModel.fetchStickerHistory(currentHobbyId, 28, null)
+            onAction(HomeAction.SelectHobby(currentHobbyId))
 
             // Safety: ensure the indicator never spins forever
             delay(4_000L)
@@ -423,7 +410,7 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = 20.dp),
                             onRoutineCreate = {
-                                viewModel.logEvent(AnalyticsEvents.activityAddEntryClicked("home_fab", state.inProgressHobbies.find { it.isCurrent }?.name))
+                                onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.activityAddEntryClicked("home_fab", state.inProgressHobbies.find { it.isCurrent }?.name)))
                                 onRoutineCreate(state.aiCallRemaining)
                             },
                             onRoutineSelected = onRoutineSelected,
@@ -583,7 +570,7 @@ fun HomeScreen(
                 FloatingMenuPopup(
                     onAddActivity = {
                         showFloatingMenu = false
-                        viewModel.logEvent(AnalyticsEvents.activityAddEntryClicked("home_fab", state.inProgressHobbies.find { it.isCurrent }?.name))
+                        onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.activityAddEntryClicked("home_fab", state.inProgressHobbies.find { it.isCurrent }?.name)))
                         onRoutineCreate(state.aiCallRemaining)
                     },
                     onShowActivityList = {
@@ -605,9 +592,9 @@ fun HomeScreen(
                 hobbyName = currentHobbyName,
                 onDismiss = {
                     showAiBottomSheet = false
-                    viewModel.fetchHomeHobbyData(currentHobbyId)
+                    onAction(HomeAction.RefreshAfterAiDismiss(currentHobbyId))
                 },
-                onAiRecommendButtonClick = { viewModel.getAiRecommendedRoutines(currentHobbyId) },
+                onAiRecommendButtonClick = { onAction(HomeAction.RequestAiRecommendation(currentHobbyId)) },
                 aiRecommendData = state.aiRoutineList,
                 aiRoutineLoaded = state.aiRoutineLoaded,
                 aiCallCount = state.aiCallCount,
@@ -619,17 +606,17 @@ fun HomeScreen(
                 onToastAction = onToastAction,
                 errorToastMessage = errorToastMessage,
                 onDismissErrorToast = onDismissErrorToast,
-                onPreviousRecommendClick = { viewModel.getAiRecommendedRoutinesAgain(currentHobbyId) },
+                onPreviousRecommendClick = { onAction(HomeAction.RequestAiRecommendationAgain(currentHobbyId)) },
                 onRecommendationsSelected = { routines ->
                     val routinesList = routines.filter { it.title.isNotBlank() }
                         .map { Pair(true, it.title) }
-                    viewModel.createRoutines(currentHobbyId, routinesList, currentHobbyName)
+                    onAction(HomeAction.CreateRoutines(currentHobbyId, routinesList, currentHobbyName))
                 },
                 onAiRecommendationShown = {
-                    viewModel.logEvent(AnalyticsEvents.aiRecommendationShown(currentHobbyName, state.aiCallCount))
+                    onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.aiRecommendationShown(currentHobbyName, state.aiCallCount)))
                 },
                 onAiRecommendationClicked = { activityName, position ->
-                    viewModel.logEvent(AnalyticsEvents.aiRecommendationClicked(currentHobbyName, activityName, position))
+                    onAction(HomeAction.LogAnalyticsEvent(AnalyticsEvents.aiRecommendationClicked(currentHobbyName, activityName, position)))
                 }
             )
         }
@@ -1317,16 +1304,24 @@ fun FloatingSettingsButton(
 @Preview(showBackground = true)
 @Composable
 fun HomeScreenPreview() {
-    HomeScreenRoot(
-        onRoutineCreate = { _, _, _ -> },
-        onModifyRoutine = {} as (Long?, String?) -> Unit,
-        onRecordRoutine = { _, _, _, _ -> },
+    HomeScreen(
+        onRoutineCreate = {},
+        onShowRoutineList = {},
+        onRoutineSelected = {},
+        onRecordRoutine = {},
         onMoveRecordedRoutine = {},
-        onModifyHobby = {},
-        onAllSettingsClick = {},
+        onSettingsItemClick = {},
+        onStickerPageNext = {},
+        onStickerPagePrevious = {},
         onAddHobbyClick = {},
-        onSelectHobby = TODO(),
-        viewModel = TODO(),
-        modifier = TODO()
+        onCurrentHobbyClick = {},
+        onOtherHobbyClick = {},
+        onCreateRoutine = {},
+        toastMessage = null,
+        onDismissToast = {},
+        onToastAction = {},
+        state = HomeState(),
+        currentHobbyId = null,
+        onAction = {},
     )
 }

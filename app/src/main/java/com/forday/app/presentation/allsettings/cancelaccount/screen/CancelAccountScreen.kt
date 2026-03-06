@@ -46,12 +46,24 @@ import com.dayn.forday.R
 import com.forday.app.core.designsystem.component.button.BottomButtonState
 import com.forday.app.core.designsystem.component.button.BottomNextButton
 import com.forday.app.core.designsystem.theme.ForDayTheme
+import com.forday.app.presentation.allsettings.SettingsAction
 import com.forday.app.presentation.allsettings.SettingsViewModel
+
+@Composable
+fun CancelAccountScreenRoot(
+    onBackClick: () -> Unit = {},
+    viewModel: SettingsViewModel,
+) {
+    CancelAccountScreen(
+        onBackClick = onBackClick,
+        onCancelAccount = { viewModel.onAction(SettingsAction.CancelAccount) }
+    )
+}
 
 @Composable
 fun CancelAccountScreen(
     onBackClick: () -> Unit = {},
-    viewModel: SettingsViewModel,
+    onCancelAccount: () -> Unit = {},
 ) {
     var isAgreed by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -177,7 +189,7 @@ fun CancelAccountScreen(
                 onDismiss = { showCancelDialog = false },
                 onConfirm = {
                     showCancelDialog = false
-                    viewModel.cancelAccount()
+                    onCancelAccount()
                 }
             )
         }
@@ -360,6 +372,6 @@ private fun CancelAccountDialog(
 @Composable
 private fun CancelAccountScreenPreview() {
     ForDayTheme {
-//        CancelAccountScreen()
+        CancelAccountScreen()
     }
 }

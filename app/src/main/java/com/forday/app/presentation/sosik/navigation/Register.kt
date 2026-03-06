@@ -4,4 +4,8 @@ import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class Register(val userId: String? = null) : NavKey  // 신고하기 페이지
+data class Register(
+    val userId: String? = null,
+    val recordId: Int = 0,
+    val nickname: String = "",
+) : NavKey  // 신고하기 페이지

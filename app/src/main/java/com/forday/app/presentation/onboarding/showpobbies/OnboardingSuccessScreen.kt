@@ -15,34 +15,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.airbnb.lottie.compose.*
 import com.dayn.forday.R
 import com.forday.app.core.designsystem.theme.ForDayTheme
-import com.forday.app.presentation.onboarding.OnboardingViewModel
 import kotlinx.coroutines.delay
-import timber.log.Timber
 
 @Composable
 fun OnboardingSuccessScreen(
     onNext: () -> Unit,
     onDirectHome: () -> Unit,
-    hobbyName: String = "독서",
-    viewModel: OnboardingViewModel,
 ) {
     var isAnimationComplete by remember { mutableStateOf(false) }
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    // 애니메이션 완료 후 자동으로 다음 화면으로 이동
+
     LaunchedEffect(isAnimationComplete) {
         if (isAnimationComplete) {
-            delay(500) // 0.5초 대기
-            Timber.e("@@@@@@@@@@@111"+state.isNicknameSet)
-//            viewModel.getOnboardingData(
-
-//            else {
-                Timber.e("@@@@@@@@@@@222")
-                onNext()
-//            }
+            delay(500)
+            onNext()
         }
     }
 

@@ -21,7 +21,17 @@ class SettingsViewModel @Inject constructor(
     private val _uiState: MutableStateFlow<SettingsUiState> = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.toStateIn()
 
-    fun logout() = viewModelScope.launch {
+    // ── MVI 단일 진입점 ──────────────────────────────────────────────
+    fun onAction(action: SettingsAction) {
+        when (action) {
+            is SettingsAction.Logout -> logout()
+            is SettingsAction.CancelAccount -> cancelAccount()
+        }
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────
+
+    private fun logout() = viewModelScope.launch {
         repository.logout()
             .onSuccess { data ->
                 if (data.isSuccess) {
@@ -36,7 +46,7 @@ class SettingsViewModel @Inject constructor(
             }
     }
 
-    fun cancelAccount() = viewModelScope.launch {
+    private fun cancelAccount() = viewModelScope.launch {
         repository.cancelAccount()
             .onSuccess {
                 _sideEffectChannel.send(SettingsSideEffect.AccountCancelled)

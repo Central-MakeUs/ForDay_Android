@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -43,30 +42,57 @@ class InputRoutinesAndAiRecommendViewModel @Inject constructor(
         getOnboardingData()
     }
 
-    fun searchHobbyMatesRoutines(selectedHobbyId: Long?) = viewModelScope.launch {  // 나와 취미가 비슷한 사람들의 루틴 추천
-            flow {
-                emit(getHobbyMateRoutines(selectedHobbyId))
-            }.httpCatch(tag = "searchHobbyMatesRoutines") { errorData ->
-                snackbarManager.show(errorData.message)
-            }.collect { result ->
-                _uiState.update {
-                    it.copy(
-                        hobbymateRoutines = result.data.activities.map { it.content },
-                        isLoading = false
-                    )
-                }
+    // ── MVI 단일 진입점 ──────────────────────────────────────────────
+    fun onAction(action: InputRoutinesAction) {
+        when (action) {
+            is InputRoutinesAction.SearchHobbyMatesRoutines -> searchHobbyMatesRoutines(action.selectedHobbyId)
+            is InputRoutinesAction.InitHobbyName -> initHobbyName(action.hobbyName)
+            is InputRoutinesAction.ResetInputState -> resetInputState()
+            is InputRoutinesAction.GetAiRecommendedRoutines -> getAiRecommendedRoutines(action.hobbyId)
+            is InputRoutinesAction.GetAiRecommendedRoutinesAgain -> getAiRecommendedRoutinesAgain(action.hobbyId, action.type)
+            is InputRoutinesAction.GetUserNickname -> getUserNickname()
+            is InputRoutinesAction.SetSelectedAiRoutine -> setSelectedAiRoutine(action.routine)
+            is InputRoutinesAction.ClearSelectedAiRoutine -> clearSelectedAiRoutine()
+            is InputRoutinesAction.SaveAiRoutines -> saveAiRoutines(action.routines)
+            is InputRoutinesAction.CreateRoutines -> createRoutines(action.hobbyId, action.routineList)
+        }
+    }
+
+    // ── Analytics ─────────────────────────────────────────────────────
+    fun logEvent(logEvent: String) {
+        analyticsManager.logEvent(logEvent)
+    }
+
+    fun logEvent(event: AnalyticsEvent) {
+        analyticsManager.logEvent(event)
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────
+
+    private fun searchHobbyMatesRoutines(selectedHobbyId: Long?) = viewModelScope.launch {
+        flow {
+            emit(getHobbyMateRoutines(selectedHobbyId))
+        }.httpCatch(tag = "searchHobbyMatesRoutines") { errorData ->
+            snackbarManager.show(errorData.message)
+        }.collect { result ->
+            _uiState.update {
+                it.copy(
+                    hobbymateRoutines = result.data.activities.map { it.content },
+                    isLoading = false
+                )
             }
         }
+    }
 
-    fun initHobbyName(hobbyName: String?) {
+    private fun initHobbyName(hobbyName: String?) {
         _uiState.update { it.copy(selectedHobbyName = hobbyName) }
     }
 
-    fun resetInputState() {
+    private fun resetInputState() {
         _uiState.update { it.copy(selectedAiRoutine = null) }
     }
 
-    fun saveAiRoutines(routines: List<AiRoutineItemState>) = viewModelScope.launch {
+    private fun saveAiRoutines(routines: List<AiRoutineItemState>) = viewModelScope.launch {
         userLocalDataSource.saveAiRoutineList(routines)
     }
 
@@ -77,14 +103,12 @@ class InputRoutinesAndAiRecommendViewModel @Inject constructor(
             }
             .collect { onboardingData ->
                 _uiState.update {
-                    it.copy(
-                        selectedHobbyName = onboardingData.hobbyName,
-                    )
+                    it.copy(selectedHobbyName = onboardingData.hobbyName)
                 }
             }
     }
 
-    fun createRoutines(hobbyId: Long?, routineList: List<Pair<Boolean, String>>) =  // 취미 활동 생성
+    private fun createRoutines(hobbyId: Long?, routineList: List<Pair<Boolean, String>>) =
         viewModelScope.launch {
             flow {
                 emit(createRoutinesUseCase.invoke(hobbyId, routineList))
@@ -109,7 +133,7 @@ class InputRoutinesAndAiRecommendViewModel @Inject constructor(
             }
         }
 
-    fun getAiRecommendedRoutines(hobbyId: Long?) = viewModelScope.launch {  // AI 추천 활동 조회
+    private fun getAiRecommendedRoutines(hobbyId: Long?) = viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true) }
 
         flow {
@@ -132,7 +156,7 @@ class InputRoutinesAndAiRecommendViewModel @Inject constructor(
         }
     }
 
-    fun getAiRecommendedRoutinesAgain(hobbyId: Long?, type: String? = "LATEST") = viewModelScope.launch {  // AI호출횟수 다 썼을 때 마지막 데이터 불러오기
+    private fun getAiRecommendedRoutinesAgain(hobbyId: Long?, type: String? = "LATEST") = viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true) }
 
         flow {
@@ -158,33 +182,22 @@ class InputRoutinesAndAiRecommendViewModel @Inject constructor(
         }
     }
 
-    fun getUserNickname() = viewModelScope.launch {
+    private fun getUserNickname() = viewModelScope.launch {
         getUserNicknameUseCase()
             .httpCatch(tag = "getUserNickname") { errorData ->
                 snackbarManager.show(errorData.message)
             }.collect { data ->
                 _uiState.update { state ->
-                    state.copy(
-                        nickname = data
-                    )
+                    state.copy(nickname = data)
                 }
             }
     }
 
-    fun setSelectedAiRoutine(routine: AiRoutineItemState) {
+    private fun setSelectedAiRoutine(routine: AiRoutineItemState) {
         _uiState.update { it.copy(selectedAiRoutine = routine) }
     }
 
-    fun clearSelectedAiRoutine() {
+    private fun clearSelectedAiRoutine() {
         _uiState.update { it.copy(selectedAiRoutine = null) }
     }
-
-    fun logEvent(logEvent: String) {
-        analyticsManager.logEvent(logEvent)
-    }
-
-    fun logEvent(event: AnalyticsEvent) {
-        analyticsManager.logEvent(event)
-    }
-
 }

@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.dayn.forday.R
 import com.forday.app.core.util.getStickerDrawableResId
+import com.forday.app.presentation.sosik.SosikAction
 import com.forday.app.presentation.sosik.SosikViewModel
 import com.forday.app.presentation.sosik.model.SosikRecordUiModel
 import com.forday.app.presentation.sosik.model.SosikTabUiModel
@@ -214,21 +215,21 @@ fun SosikScreenRoot(
 
     LaunchedEffect(isNearBottom) {
         if (isNearBottom && state.content.hasNext && !state.isLoadingMore) {
-            viewModel.loadMorePeopleRoutineList()
+            viewModel.onAction(SosikAction.LoadMore)
         }
     }
 
     LaunchedEffect(Unit) {
         viewModel.logEvent(AnalyticsEvents.SOSIK_SCREEN)
-        viewModel.fetchPeopleRoutineList()
-        viewModel.getUserLoginInfo()
+        viewModel.onAction(SosikAction.FetchRoutineList())
+        viewModel.onAction(SosikAction.GetUserLoginInfo)
     }
 
     LaunchedEffect(state.socialType, state.hasShownGuestBottomSheet) {
         if (!state.hasShownGuestBottomSheet && state.socialType != null) {
             if (state.socialType == "GUEST" && !dismissedByUser) {
                 showGuestBottomSheet = true
-                viewModel.markGuestBottomSheetShown()
+                viewModel.onAction(SosikAction.MarkGuestBottomSheetShown)
             }
         }
         if (state.socialType != null && state.socialType != "GUEST") {
@@ -244,17 +245,17 @@ fun SosikScreenRoot(
         tabList = state.content.tabList,
         selectedHobbyTab = state.selectedTabIndex,
         onHobbyTabSelected = { index ->
-            if (state.socialType == "KAKAO") viewModel.selectTab(index)
+            if (state.socialType == "KAKAO") viewModel.onAction(SosikAction.SelectTab(index))
             else showGuestBottomSheet = true
         },
         listState = listState,
         onLikeClick = { recordId, isPressedAwesome ->
             if (state.socialType == "KAKAO") {
-                viewModel.toggleAwesome(recordId)
+                viewModel.onAction(SosikAction.ToggleAwesome(recordId))
                 if (isPressedAwesome) {
-                    viewModel.cancelReaction(recordId.toInt(), "GREAT")
+                    viewModel.onAction(SosikAction.CancelReaction(recordId.toInt(), "GREAT"))
                 } else {
-                    viewModel.reactionToPosting(recordId.toInt(), "GREAT")
+                    viewModel.onAction(SosikAction.ReactionToPosting(recordId.toInt(), "GREAT"))
                 }
             } else showGuestBottomSheet = true
         },
@@ -278,7 +279,7 @@ fun SosikScreenRoot(
             onKakaoLogin = {
                 showGuestBottomSheet = false
                 dismissedByUser = true
-                viewModel.loginWithKakao(context, "KAKAO")
+                viewModel.onAction(SosikAction.LoginWithKakao(context, "KAKAO"))
             }
         )
     }
@@ -759,35 +760,56 @@ private fun Modifier.drawBottomBorder(color: Color, strokeWidth: Dp = 1.dp): Mod
 
 private fun previewRecordList() = listOf(
     SosikRecordUiModel(
-        1L,
-        "",
-        "미라클 모닝 독서 활동명이 들어갑니다",
-        "유저닉네임",
-        "",
-        false,
-        "smile",
-        "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
-        hobbyName = TODO(),
-        userId = TODO(),
-        recordAuthor = TODO()
+        recordId = 1L,
+        imageUrl = "",
+        title = "미라클 모닝 독서 활동명이 들어갑니다",
+        nickname = "유저닉네임",
+        profileImageUrl = "",
+        pressedAweSome = false,
+        sticker = "smile",
+        memo = "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
+        hobbyName = "독서",
+        userId = "user1",
+        recordAuthor = false
     ),
     SosikRecordUiModel(
-        2L, "", "야외에서 책 읽기", "유저닉네임", "", false, "angry", "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
-        hobbyName = TODO(),
-        userId = TODO(),
-        recordAuthor = TODO()
+        recordId = 2L,
+        imageUrl = "",
+        title = "야외에서 책 읽기",
+        nickname = "유저닉네임",
+        profileImageUrl = "",
+        pressedAweSome = false,
+        sticker = "angry",
+        memo = "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
+        hobbyName = "독서",
+        userId = "user2",
+        recordAuthor = false
     ),
     SosikRecordUiModel(
-        3L, "", "도서관에서 책 빌리기", "유저닉네임", "", true, "sad", "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
-        hobbyName = TODO(),
-        userId = TODO(),
-        recordAuthor = TODO()
+        recordId = 3L,
+        imageUrl = "",
+        title = "도서관에서 책 빌리기",
+        nickname = "유저닉네임",
+        profileImageUrl = "",
+        pressedAweSome = true,
+        sticker = "sad",
+        memo = "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
+        hobbyName = "독서",
+        userId = "user3",
+        recordAuthor = false
     ),
     SosikRecordUiModel(
-        4L, "", "내 기분과 비슷한 문장 찾기", "유저닉네임", "", false, "laugh", "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
-        hobbyName = TODO(),
-        userId = TODO(),
-        recordAuthor = TODO()
+        recordId = 4L,
+        imageUrl = "",
+        title = "내 기분과 비슷한 문장 찾기",
+        nickname = "유저닉네임",
+        profileImageUrl = "",
+        pressedAweSome = false,
+        sticker = "laugh",
+        memo = "오늘은 어쩌고 저쩌고 어쩌고 저쩌고 어쩌고 저쩌고...",
+        hobbyName = "독서",
+        userId = "user4",
+        recordAuthor = false
     ),
 )
 

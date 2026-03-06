@@ -42,6 +42,7 @@ import com.forday.app.core.designsystem.component.state.ErrorContent
 import com.forday.app.core.designsystem.component.state.ErrorDataUiState
 import com.forday.app.core.designsystem.toast.ErrorToast
 import com.forday.app.core.designsystem.theme.ForDayTheme
+import com.forday.app.presentation.modifyhobby.ModifyHobbyAction
 import com.forday.app.presentation.modifyhobby.ModifyHobbyUiState
 import com.forday.app.presentation.modifyhobby.ModifyHobbyViewModel
 import kotlinx.coroutines.delay
@@ -112,7 +113,7 @@ fun ModifyHobbyScreenRoot(
     viewModel.logEvent(AnalyticsEvents.MODIFY_HOBBY_SCREEN)
 
     LaunchedEffect(Unit) {
-        viewModel.fetchMyHobbyList()
+        viewModel.onAction(ModifyHobbyAction.FetchMyHobbyList())
     }
 
     val errorData = state.errorData
@@ -122,7 +123,7 @@ fun ModifyHobbyScreenRoot(
             onAction = {
                 when (errorData.errorType) {
                     ErrorDataUiState.ErrorType.TYPE_BACK -> onBack()
-                    ErrorDataUiState.ErrorType.TYPE_RETRY -> viewModel.fetchMyHobbyList()
+                    ErrorDataUiState.ErrorType.TYPE_RETRY -> viewModel.onAction(ModifyHobbyAction.FetchMyHobbyList())
                 }
             }
         )
@@ -142,16 +143,16 @@ fun ModifyHobbyScreenRoot(
                 onChangeJourneyDays(params)
             },
             onTabChange = { status ->
-                viewModel.fetchMyHobbyList(status.name)
+                viewModel.onAction(ModifyHobbyAction.FetchMyHobbyList(status.name))
             },
             onConfirmStorage = { hobbyId, status, hobbyName ->
-                viewModel.modifyHobbyStatus(hobbyId.toLong(), status.name)
+                viewModel.onAction(ModifyHobbyAction.ModifyHobbyStatus(hobbyId.toLong(), status.name))
             },
             onDismissHobbyLimitDialog = {
-                viewModel.dismissHobbyLimitDialog()
+                viewModel.onAction(ModifyHobbyAction.DismissHobbyLimitDialog)
             },
             onClearToast = {
-                viewModel.clearToast()
+                viewModel.onAction(ModifyHobbyAction.ClearToast)
             }
         )
     }

@@ -28,12 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -48,82 +43,27 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dayn.forday.R
 import com.forday.app.core.designsystem.theme.ForDayTheme
 import com.forday.app.core.logger.analytics.AnalyticsEvents
-import com.forday.app.presentation.onboarding.OnboardingViewModel
 import timber.log.Timber
 
 @Composable
 fun LoginScreenRoot(
-    onNavigateToHome: () -> Unit,
-    onNavigateToOnboarding: () -> Unit,
-    onNavigateToNickname: () -> Unit,
-    viewModel: OnboardingViewModel
+    viewModel: LoginViewModel,
 ) {
     viewModel.logEvent(AnalyticsEvents.LOGIN_SCREEN)
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var showInstallDialog by remember { mutableStateOf(false) }
-
-    // 로그인 시도 플래그
-    var loginAttempted by remember { mutableStateOf(false) }
-
-    // 로그인 완료 후에만 navigation
-    LaunchedEffect(state.isLoginSuccess, state.isNewUser, state.isOnboardingCompleted, state.isNicknameSet, loginAttempted) {
-        Timber.e(
-            "LoginScreenRoot LaunchedEffect - attempted=$loginAttempted, success=${state.isLoginSuccess}, newUser=${state.isNewUser}, onboardingCompleted=${state.isOnboardingCompleted}, nicknameSet=${state.isNicknameSet}"
-        )
-        // 로그인 버튼을 눌렀더라도, 앱 로그인(서버 로그인) 성공 전에는 화면 이동하지 않음
-        if (!loginAttempted || !state.isLoginSuccess) return@LaunchedEffect
-
-        when {
-            state.isNewUser == true -> {
-                Timber.e("@@@@@@@ Navigate to Onboarding")
-                onNavigateToOnboarding()
-                loginAttempted = false
-            }
-
-            state.isOnboardingCompleted == false -> {
-                Timber.e("@@@@@@@ Navigate to Onboarding")
-                onNavigateToOnboarding()
-                loginAttempted = false
-            }
-
-            state.isOnboardingCompleted == true && state.isNicknameSet == false -> {
-                Timber.e("@@@@@@@ Navigate to InputNickname")
-                onNavigateToNickname()
-                loginAttempted = false
-            }
-
-            state.isOnboardingCompleted == true && state.isNicknameSet == true -> {
-                Timber.e("@@@@@@@ Navigate to Home")
-                onNavigateToHome()
-                loginAttempted = false
-            }
-
-            else -> {
-                Timber.e(
-                    "LoginScreenRoot navigation skipped - no branch matched (newUser=${state.isNewUser}, onboardingCompleted=${state.isOnboardingCompleted}, nicknameSet=${state.isNicknameSet})"
-                )
-            }
-        }
-    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LoginScreen(
             onKakaoLogin = {
                 viewModel.logEvent(AnalyticsEvents.KAKAO_LOGIN_CLICK)
-                loginAttempted = true  // 플래그 설정
-                viewModel.loginWithKakao(context)
+                viewModel.onAction(LoginAction.LoginWithKakao(context))
             },
             onGuestMode = {
-                Timber.e("@@@@@@@@@@@@@@@@@@@@@@@guest_mode_click")
                 viewModel.logEvent(AnalyticsEvents.GUEST_MODE_CLICK)
-                loginAttempted = true  // ✅ 플래그 설정
-                viewModel.loginWithGuest()
+                viewModel.onAction(LoginAction.LoginWithGuest)
             }
         )
     }

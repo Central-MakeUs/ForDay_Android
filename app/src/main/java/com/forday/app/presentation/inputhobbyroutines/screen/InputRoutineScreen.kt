@@ -80,6 +80,7 @@ import com.forday.app.core.designsystem.component.state.ErrorDataUiState
 import com.forday.app.core.designsystem.theme.ForDayTheme
 import com.forday.app.core.designsystem.toast.ErrorToast
 import com.forday.app.presentation.inputhobbyroutines.AiRoutineItemState
+import com.forday.app.presentation.inputhobbyroutines.InputRoutinesAction
 import com.forday.app.presentation.inputhobbyroutines.InputRoutinesAndAiRecommendSideEffect
 import com.forday.app.presentation.inputhobbyroutines.InputRoutinesAndAiRecommendViewModel
 import com.forday.app.presentation.inputhobbyroutines.RoutinesState
@@ -115,8 +116,8 @@ fun InputRoutineScreenRoot(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 //    var resetTrigger by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
-        viewModel.initHobbyName(hobbyName)
-        viewModel.searchHobbyMatesRoutines(selectedHobbyId = hobbyId)
+        viewModel.onAction(InputRoutinesAction.InitHobbyName(hobbyName))
+        viewModel.onAction(InputRoutinesAction.SearchHobbyMatesRoutines(selectedHobbyId = hobbyId))
     }
 
     LaunchedEffect(Unit) {
@@ -143,17 +144,17 @@ fun InputRoutineScreenRoot(
                 hasAiRoutine = list.any { it.first }
                 list.forEach { viewModel.logEvent(AnalyticsEvents.finalHobbyActivity(it.toString())) }
                 viewModel.logEvent(AnalyticsEvents.CREATE_HOBBY_CLICK)
-                viewModel.createRoutines(
+                viewModel.onAction(InputRoutinesAction.CreateRoutines(
                     hobbyId = hobbyId,
                     routineList = list
-                )
+                ))
             },
             hobbymateRoutines = state.hobbymateRoutines,
             hobbyId = hobbyId,
             selectedAiRoutine = state.selectedAiRoutine,
-            onClearSelectedAiRoutine = { viewModel.clearSelectedAiRoutine() },
+            onClearSelectedAiRoutine = { viewModel.onAction(InputRoutinesAction.ClearSelectedAiRoutine) },
             state = state,
-            getHobbyMatesRoutines = { viewModel.searchHobbyMatesRoutines(selectedHobbyId = hobbyId) },
+            getHobbyMatesRoutines = { viewModel.onAction(InputRoutinesAction.SearchHobbyMatesRoutines(selectedHobbyId = hobbyId)) },
             onExit = { onExit() },
             aiCallRemaining = aiCallRemaining,  // 추가
             viewModel = viewModel,
@@ -238,7 +239,7 @@ fun InputRoutineScreen(
     )
     LaunchedEffect(hobbyId) {  // Unit 대신 hobbyId를 key로
         Timber.e("@@@@@@@@@@@@############# " + hobbyId)
-        viewModel.resetInputState()  // selectedAiRoutine 초기화
+        viewModel.onAction(InputRoutinesAction.ResetInputState)  // selectedAiRoutine 초기화
     }
     var activities by rememberSaveable(
         key = "activities_$hobbyId",  // hobbyId가 바뀌면 새로 초기화

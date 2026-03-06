@@ -42,6 +42,7 @@ import com.forday.app.core.designsystem.component.layout.OnboardingLayout
 import com.forday.app.core.designsystem.theme.ForDayTheme
 import com.forday.app.presentation.modifyhobby.screen.HobbyModifyParams
 import com.forday.app.core.logger.analytics.AnalyticsEvents
+import com.forday.app.core.session.AuthManager
 import com.forday.app.presentation.onboarding.OnboardingViewModel
 import com.forday.app.presentation.onboarding.timeselect.ScreenMode
 import kotlinx.coroutines.delay
@@ -86,10 +87,10 @@ fun SelectJourneyDaysScreenRoot(
     onBack: () -> Unit,
     goHome: () -> Unit,
     viewModel: OnboardingViewModel,
+    authManager: AuthManager? = null,
 ) {
     viewModel.logEvent(AnalyticsEvents.HOBBY_JOURNEY_DATE_SCREEN)
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    Timber.e("@@@@@@@@@@@111"+state.isNicknameSet+", "+mode)
 
     val scope = rememberCoroutineScope()
     SelectJourneyDaysScreen(
@@ -122,7 +123,7 @@ fun SelectJourneyDaysScreenRoot(
                     viewModel.modifyHobbyGoalDays(params!!.hobbyId.toLong(), goalDays)
                 } else {
                     viewModel.logEvent(AnalyticsEvents.ONBOARDING_SUCCESS)
-                    viewModel.saveIsOnboardingCompleted(true)
+                    authManager?.saveIsOnboardingCompleted(true)
                     viewModel.createHobby(
                         state.selectedHobbyId,
                         state.selectedHobbyName,
@@ -132,11 +133,12 @@ fun SelectJourneyDaysScreenRoot(
                         state.selectedJourneyMode
                     )
                 }
-                delay(400L)                                     // ✅ 공통 2초 지연
+                delay(400L)
                 if (mode == ScreenMode.DEFAULT) {
                     onNext()
                 } else {
-                    if (state.isNicknameSet == true) {
+                    val sessionState = authManager?.session?.sessionState?.value
+                    if (sessionState?.isNicknameSet == true) {
                         goHome()
                     } else {
                         onNext()

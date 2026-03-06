@@ -22,7 +22,13 @@
       "Bash(/c/Users/user/AppData/Local/Microsoft/WindowsApps/python3:*)",
       "Bash(node:*)",
       "Bash(cat:*)",
-      "Bash(jar tf:*)"
+      "Bash(jar tf:*)",
+      "Bash(./gradlew.bat compileDebugKotlin:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(ls:*)",
+      "Bash(./gradlew compileDebugKotlin:*)",
+      "Bash(cmd:*)",
+      "Bash(bash gradlew:*)"
     ]
   }
 }

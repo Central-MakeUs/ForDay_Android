@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.dayn.forday.R
-import com.forday.app.presentation.mypage.MyPageViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import android.provider.OpenableColumns
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,10 +65,13 @@ object ProfileSettingColors {
 @Composable
 fun ProfileSettingScreenRoot(
     goBack: () -> Unit,
-    viewModel: MyPageViewModel
+    initialProfileImageUrl: String? = null,
+    initialNickname: String? = null,
+    viewModel: ProfileSettingViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val onAction = viewModel::onAction
 
     // 상태 관리
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -82,7 +85,7 @@ fun ProfileSettingScreenRoot(
     var isMarkedForDeletion by remember { mutableStateOf(false) }
 
     // 닉네임 관련 상태
-    var nickname by remember { mutableStateOf(state.userInfo?.nickName ?: "") }
+    var nickname by remember { mutableStateOf(initialNickname ?: "") }
     var nicknameErrorMessage by remember { mutableStateOf("") }
     var nicknameSuccessMessage by remember { mutableStateOf("") }
     var isNicknameChanged by remember { mutableStateOf(false) }
@@ -112,32 +115,33 @@ fun ProfileSettingScreenRoot(
 
     // 화면 진입 시 이전 닉네임 중복 확인 결과 초기화
     LaunchedEffect(Unit) {
-        viewModel.resetNicknameCheck()
+        onAction(ProfileSettingAction.ResetNicknameCheck)
     }
 
-    // 닉네임 중복 확인 결과 반응
-    LaunchedEffect(state.nicknameCheckMessage, state.isNicknameChecked) {
-        when {
-            state.nicknameCheckMessage.isEmpty() -> {
-                nicknameErrorMessage = ""
-                nicknameSuccessMessage = ""
-            }
-            state.isNicknameChecked == true -> {
-                nicknameSuccessMessage = state.nicknameCheckMessage
-                nicknameErrorMessage = ""
-            }
-            state.isNicknameChecked == false -> {
-                nicknameErrorMessage = state.nicknameCheckMessage
-                nicknameSuccessMessage = ""
+    // SideEffect 처리
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is ProfileSettingSideEffect.NicknameRegisterSuccess -> goBack()
             }
         }
     }
 
-    // 닉네임 등록 성공 시 goBack
-    LaunchedEffect(state.nicknameRegisterSuccess) {
-        if (state.nicknameRegisterSuccess) {
-            viewModel.resetNicknameRegisterSuccess()
-            goBack()
+    // 닉네임 중복 확인 결과 반응
+    LaunchedEffect(state.nickname.checkMessage, state.nickname.isChecked) {
+        when {
+            state.nickname.checkMessage.isEmpty() -> {
+                nicknameErrorMessage = ""
+                nicknameSuccessMessage = ""
+            }
+            state.nickname.isChecked == true -> {
+                nicknameSuccessMessage = state.nickname.checkMessage
+                nicknameErrorMessage = ""
+            }
+            state.nickname.isChecked == false -> {
+                nicknameErrorMessage = state.nickname.checkMessage
+                nicknameSuccessMessage = ""
+            }
         }
     }
 
@@ -157,12 +161,12 @@ fun ProfileSettingScreenRoot(
             )
         )
 
-        viewModel.getPresignedUrl(imageInfo)
+        onAction(ProfileSettingAction.GetPresignedUrl(imageInfo))
     }
 
     // Presigned URL 받은 후 S3 업로드
-    LaunchedEffect(state.imageUploadState) {
-        state.imageUploadState.let { uploadState ->
+    LaunchedEffect(state.image.uploadState) {
+        state.image.uploadState.let { uploadState ->
             Timber.d("ImageUploadState: isUploading=${uploadState.isUploading}, isSuccess=${uploadState.isSuccess}, uploadUrl=${uploadState.uploadUrl}, fileUrl=${uploadState.fileUrl}")
 
             if (isUploading) {
@@ -176,12 +180,12 @@ fun ProfileSettingScreenRoot(
 
                         if (file != null) {
                             Timber.d("Starting S3 upload for file: ${file.name}")
-                            viewModel.uploadImageToS3(
+                            onAction(ProfileSettingAction.UploadImageToS3(
                                 file = file,
                                 uploadUrl = uploadState.uploadUrl,
                                 contentType = getContentType(context, uri),
                                 order = 1
-                            )
+                            ))
                         } else {
                             Timber.e("Failed to convert Uri to File")
                             isUploading = false
@@ -196,8 +200,6 @@ fun ProfileSettingScreenRoot(
                     Timber.d("Upload success! fileUrl: ${uploadState.fileUrl}")
                     uploadComplete = true
                     isUploading = false
-
-//                    viewModel.setProfileImage(uploadState.fileUrl)
                 }
             }
         }
@@ -230,17 +232,17 @@ fun ProfileSettingScreenRoot(
         }
     }
 
-    val isCompleteEnabled = !isNicknameChanged || state.isNicknameChecked == true
+    val isCompleteEnabled = !isNicknameChanged || state.nickname.isChecked == true
 
     ProfileSettingScreen(
-        profileImageUrl = state.userInfo?.profileImageUrl,
-        nickName = state.userInfo?.nickName ?: "",
+        profileImageUrl = initialProfileImageUrl,
+        nickName = initialNickname ?: "",
         onBackClick = {
             isMarkedForDeletion = false
             goBack()
         },
         onCompleteClick = {
-            // ✅ 완료 버튼: 모든 변경사항 적용
+            // 완료 버튼: 모든 변경사항 적용
             if (isUploading) {
                 if (!showUploadingToast) {
                     showUploadingToast = true
@@ -253,31 +255,29 @@ fun ProfileSettingScreenRoot(
             }
             // 1. 삭제가 예정되어 있으면 실제 삭제 실행
             if (isMarkedForDeletion) {
-                val imageUrlToDelete = state.userInfo?.profileImageUrl
+                val imageUrlToDelete = initialProfileImageUrl
 
                 if (!imageUrlToDelete.isNullOrEmpty()) {
                     val actualUrl = imageUrlToDelete.replace("/temp/", "/")
 
-                    Timber.d("🔴 Deleting profile image on complete")
-                    Timber.d("   Original: $imageUrlToDelete")
-                    Timber.d("   Actual:   $actualUrl")
+                    Timber.d("Deleting profile image on complete")
 
                     // S3에서 삭제
-                    viewModel.deleteS3Image(actualUrl)
+                    onAction(ProfileSettingAction.DeleteS3Image(actualUrl))
                     // 서버에 빈 URL 저장
-                    viewModel.setProfileImage()
+                    onAction(ProfileSettingAction.SetProfileImage())
                 }
             }
             // 2. 새 이미지 업로드가 있으면 서버에 저장
             else if (uploadComplete) {
-                state.imageUploadState.fileUrl?.let {
-                    viewModel.setProfileImage(it)
+                state.image.uploadState.fileUrl?.let {
+                    onAction(ProfileSettingAction.SetProfileImage(it))
                 }
             }
 
-            // 3. 닉네임이 변경됐으면 등록 (성공 시 LaunchedEffect에서 goBack)
-            if (isNicknameChanged && state.isNicknameChecked == true) {
-                viewModel.registerNickname(nickname)
+            // 3. 닉네임이 변경됐으면 등록 (성공 시 SideEffect에서 goBack)
+            if (isNicknameChanged && state.nickname.isChecked == true) {
+                onAction(ProfileSettingAction.RegisterNickname(nickname))
                 return@ProfileSettingScreen
             }
 
@@ -288,17 +288,17 @@ fun ProfileSettingScreenRoot(
             showProfilePhotoBottomSheet = true
         },
         onDuplicateCheckClick = {
-            viewModel.getIsNicknameDuplicate(nickname)
+            onAction(ProfileSettingAction.CheckNicknameDuplicate(nickname))
         },
         onNickNameChange = { newNickname ->
             nickname = newNickname
-            isNicknameChanged = newNickname != (state.userInfo?.nickName ?: "")
-            viewModel.resetNicknameCheck()
+            isNicknameChanged = newNickname != (initialNickname ?: "")
+            onAction(ProfileSettingAction.ResetNicknameCheck)
             nicknameErrorMessage = ""
             nicknameSuccessMessage = ""
         },
         isUploading = isUploading,
-        isNicknameCheckLoading = state.isNicknameCheckLoading,
+        isNicknameCheckLoading = state.nickname.isCheckLoading,
         isMarkedForDeletion = isMarkedForDeletion,
         uploadComplete = uploadComplete,
         selectedImageUri = selectedImageUri,
@@ -316,7 +316,7 @@ fun ProfileSettingScreenRoot(
         onNicknameFocusChanged = { isFocused ->
             if (isFocused) {
                 hasFocused = true
-                if (state.isNicknameChecked == null) {
+                if (state.nickname.isChecked == null) {
                     nicknameErrorMessage = ""
                     nicknameSuccessMessage = ""
                 }
@@ -361,7 +361,6 @@ fun ProfileSettingScreenRoot(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-//                .align(Alignment.BottomCenter)
                 .padding(bottom = 32.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -907,12 +906,6 @@ fun ProfilePhotoBottomSheet(
 fun ProfileSettingScreenPreview() {
     ProfileSettingScreen(
         nickName = "유지",
-        onNickNameChange = {},
-        onBackClick = {},
-        onCompleteClick = {},
-        onProfileImageClick = {},
-        onDuplicateCheckClick = {},
-        modifier = TODO(),
-        profileImageUrl = TODO(),
+        nickname = "유지",
     )
 }

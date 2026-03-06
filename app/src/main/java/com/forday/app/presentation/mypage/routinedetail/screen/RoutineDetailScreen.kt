@@ -94,8 +94,10 @@ import com.forday.app.core.designsystem.component.clickable.NoRippleInteractionS
 import com.forday.app.core.designsystem.theme.ForDayTheme
 import com.forday.app.domain.model.ReactionDetailDomain
 import com.forday.app.domain.model.ReactionUserInfo
-import com.forday.app.presentation.mypage.MyPageUiState
-import com.forday.app.presentation.mypage.MyPageViewModel
+import com.forday.app.presentation.mypage.routinedetail.RoutineDetailAction
+import com.forday.app.presentation.mypage.routinedetail.RoutineDetailSideEffect
+import com.forday.app.presentation.mypage.routinedetail.RoutineDetailUiState
+import com.forday.app.presentation.mypage.routinedetail.RoutineDetailViewModel
 import com.forday.app.presentation.mypage.routinedetail.RoutineReactionUiModel
 import com.forday.app.presentation.mypage.routinedetail.RoutineRecordDetailUiModel
 import com.forday.app.presentation.mypage.routinedetail.RoutineUserReactionUiModel
@@ -174,37 +176,74 @@ enum class ReactionType {
     FIGHTING    // 응원해요
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoutineDetailScreen(
     onBackClick: () -> Unit = {},
     routineId: Long,
     onNavigateToMyPage: () -> Unit = {},
-    onNavigateToHome: () -> Unit = {},  //
-    onMoreMenuClick: () -> Unit = {},
+    onNavigateToHome: () -> Unit = {},
     onSaveCardClick: () -> Unit = {},
     onReportClick: () -> Unit = {},
     onNavigateToUserPage: (userId: String, recordOwner: Boolean) -> Unit = { _, _ -> },
     isNewRecord: Boolean = false,
     isUserPageEntry: Boolean = false,
     modifier: Modifier = Modifier,
-    viewModel: MyPageViewModel,
+    viewModel: RoutineDetailViewModel,
     onNavigateToRecordRoutine: (RoutineRecordDetailUiModel?, Boolean) -> Unit,
 ) {
-    Timber.e("@@@@@@@@@@@@@@@@@isUserPageEntry : "+isUserPageEntry)
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        viewModel.onAction(RoutineDetailAction.LoadDetail(routineId.toInt()))
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is RoutineDetailSideEffect.DeleteSuccess -> onBackClick()
+            }
+        }
+    }
+
+    RoutineDetailContent(
+        state = state,
+        onAction = viewModel::onAction,
+        routineId = routineId,
+        onBackClick = onBackClick,
+        onNavigateToMyPage = onNavigateToMyPage,
+        onNavigateToHome = onNavigateToHome,
+        onSaveCardClick = onSaveCardClick,
+        onReportClick = onReportClick,
+        onNavigateToUserPage = onNavigateToUserPage,
+        isNewRecord = isNewRecord,
+        isUserPageEntry = isUserPageEntry,
+        modifier = modifier,
+        onNavigateToRecordRoutine = onNavigateToRecordRoutine,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RoutineDetailContent(
+    state: RoutineDetailUiState,
+    onAction: (RoutineDetailAction) -> Unit,
+    routineId: Long,
+    onBackClick: () -> Unit = {},
+    onNavigateToMyPage: () -> Unit = {},
+    onNavigateToHome: () -> Unit = {},
+    onSaveCardClick: () -> Unit = {},
+    onReportClick: () -> Unit = {},
+    onNavigateToUserPage: (userId: String, recordOwner: Boolean) -> Unit = { _, _ -> },
+    isNewRecord: Boolean = false,
+    isUserPageEntry: Boolean = false,
+    modifier: Modifier = Modifier,
+    onNavigateToRecordRoutine: (RoutineRecordDetailUiModel?, Boolean) -> Unit,
+) {
     BackHandler(enabled = isNewRecord) {
         onNavigateToHome()
     }
-    Timber.e("routineId2@@@@@@@@@@@@@ : " + routineId)
-    LaunchedEffect(Unit) {
-        viewModel.getMyRoutineRecordDetail(routineId.toInt())
-        viewModel.getNickname()
-    }
-    val state = viewModel.uiState.collectAsStateWithLifecycle()
-    val routine = state.value.myRoutineDetails
-    val isBookmarked = state.value.isScraped ?: routine?.isScraped ?: false
-    //TODO 취미이름 추가 (다른 사용자페이지)
-    state.value.myRoutineDetails?.hobbyName
+    val routine = state.detail.routine
+    val isBookmarked = state.reaction.isScraped ?: routine?.isScraped ?: false
     // Optimistic Update용 임시 상태
     var selectedReactions by remember { mutableStateOf<Set<ReactionType>>(emptySet()) }
     var canceledReactions by remember { mutableStateOf<Set<ReactionType>>(emptySet()) }
@@ -232,7 +271,7 @@ fun RoutineDetailScreen(
         }
     }
 
-    Timber.e("@@@@@@@@@@@@content " + state.value.myRoutineDetails?.content)
+    Timber.e("@@@@@@@@@@@@content " + state.detail.routine?.content)
 
     val shimmerBrush = rememberShimmerBrush()
     val density = LocalDensity.current
@@ -277,7 +316,7 @@ fun RoutineDetailScreen(
                         writerProfileImageUrl = routine.writerProfileImageUrl ?: "",
                         onWriterClick = { onNavigateToUserPage(routine.writerId ?: "", routine.isMine ?: false) },
                         isUserPageEntry = isUserPageEntry,
-                        hobbyName = state.value.myRoutineDetails?.hobbyName ?: ""
+                        hobbyName = state.detail.routine?.hobbyName ?: ""
                     )
                 }
             }
@@ -292,13 +331,13 @@ fun RoutineDetailScreen(
             } else {
                 //
                 AnimatedVisibility(
-                    visible = showReactionUsers && state.value.reactionUsers.users.isNotEmpty(),
+                    visible = showReactionUsers && state.reaction.users.users.isNotEmpty(),
                     enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                     exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
                 ) {
                     ReactionUsersList(
                         reactionType = displayedReaction ?: ReactionType.AWESOME,
-                        users = state.value.reactionUsers.users
+                        users = state.reaction.users.users
                     )
                 }
 
@@ -310,11 +349,7 @@ fun RoutineDetailScreen(
                     reactions = routine?.reactions,
                     isBookmarked = isBookmarked,
                     onBookmarkClick = {
-                        if (isBookmarked) {
-                            viewModel.cancelScrapPosting(routineId.toInt())
-                        } else {
-                            viewModel.scrapPosting(routineId.toInt())
-                        }
+                        onAction(RoutineDetailAction.ToggleScrap(routineId.toInt(), isBookmarked))
                     },
                     onReactionTap = { reaction ->
                         if (showReactionUsers) {
@@ -330,7 +365,7 @@ fun RoutineDetailScreen(
                                     ReactionType.AMAZING -> "AMAZING"
                                     ReactionType.FIGHTING -> "FIGHTING"
                                 }
-                                viewModel.getReactionUsers(routineId.toInt(), reactionString, "", 10)
+                                onAction(RoutineDetailAction.GetReactionUsers(routineId.toInt(), reactionString))
                             }
                         } else {
                             pendingReaction = reaction
@@ -341,7 +376,7 @@ fun RoutineDetailScreen(
                                 ReactionType.AMAZING -> "AMAZING"
                                 ReactionType.FIGHTING -> "FIGHTING"
                             }
-                            viewModel.getReactionUsers(routineId.toInt(), reactionString, "", 10)
+                            onAction(RoutineDetailAction.GetReactionUsers(routineId.toInt(), reactionString))
                             showReactionUsers = true
                         }
                     },
@@ -363,12 +398,12 @@ fun RoutineDetailScreen(
                         val shouldRefreshUsers = showReactionUsers && displayedReaction == reaction
                         if (isCurrentlySelected) {
                             if (isPressed == true) {
-                                viewModel.cancelMyReaction(routineId.toInt(), reactionString, shouldRefreshUsers)
+                                onAction(RoutineDetailAction.CancelReaction(routineId.toInt(), reactionString, shouldRefreshUsers))
                                 canceledReactions = canceledReactions + reaction
                             }
                             selectedReactions = selectedReactions - reaction
                         } else {
-                            viewModel.reactionToRoutinePosting(routineId.toInt(), reactionString, shouldRefreshUsers)
+                            onAction(RoutineDetailAction.ReactToPosting(routineId.toInt(), reactionString, shouldRefreshUsers))
                             selectedReactions = selectedReactions + reaction
                             canceledReactions = canceledReactions - reaction
                         }
@@ -399,10 +434,13 @@ fun RoutineDetailScreen(
                 isMine = routine?.isMine ?: true,
                 onModifyPosting = {
                     showMoreMenu = false
-                    onNavigateToRecordRoutine(state.value.myRoutineDetails, true)
+                    onNavigateToRecordRoutine(state.detail.routine, true)
                 },
                 onSetThumbnailClick = {
-                    viewModel.setHobbyMainImage(state.value.myRoutineDetails?.hobbyId?.toLong(), null, state.value.myRoutineDetails?.recordId?.toLong())
+                    onAction(RoutineDetailAction.SetHobbyMainImage(
+                        hobbyId = state.detail.routine?.hobbyId?.toLong(),
+                        recordId = state.detail.routine?.recordId?.toLong()
+                    ))
                     showMoreMenu = false
                     toastMessage = "대표사진 설정 완료!"
                     showToast = true
@@ -410,7 +448,6 @@ fun RoutineDetailScreen(
                         delay(3000)
                         showToast = false
                     }
-//                    onNavigateToMyPage()
                 },
                 onDeletePosting = {
                     showMoreMenu = false
@@ -420,10 +457,9 @@ fun RoutineDetailScreen(
                     showMoreMenu = false
                     onReportClick()
                 },
-                state = state.value,
+                hasImage = !state.detail.routine?.imageUrl.isNullOrEmpty(),
             )
         }
-        state.value.reactionUsers.users
         // Toast Message
         AnimatedVisibility(
             visible = showToast,
@@ -443,7 +479,7 @@ fun RoutineDetailScreen(
             exit = fadeOut(animationSpec = tween(250)),
             modifier = Modifier.fillMaxSize()
         ) {
-            RecordSuccessAnimation(state.value.userInfo?.nickName ?: "포비")
+            RecordSuccessAnimation(state.detail.nickname ?: "포비")
         }
     }
 
@@ -454,9 +490,8 @@ fun RoutineDetailScreen(
             onConfirm = {
                 showDeleteConfirmDialog = false
                 routine?.recordId?.let { recordId ->
-                    viewModel.deletePosting(recordId.toLong())
+                    onAction(RoutineDetailAction.DeletePosting(recordId.toLong()))
                 }
-                onBackClick()
             }
         )
     }
@@ -1210,7 +1245,7 @@ fun MoreMenuDropdown(
     onSetThumbnailClick: () -> Unit,
     onDeletePosting: () -> Unit,
     onReportClick: () -> Unit = {},
-    state: MyPageUiState,
+    hasImage: Boolean = false,
 ) {
     Surface(
         modifier = modifier.wrapContentSize(),
@@ -1222,7 +1257,7 @@ fun MoreMenuDropdown(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             if (isMine) {
-                if (!state.myRoutineDetails?.imageUrl.isNullOrEmpty()) {
+                if (hasImage) {
                     MoreMenuItem(
                         icon = painterResource(R.drawable.ic_profile_main),
                         text = "대표사진 설정",
@@ -1684,17 +1719,11 @@ private fun ProfileImageWithSkeleton(
 @Composable
 fun PreviewActivityDetailScreen() {
     ForDayTheme {
-        // Preview에서는 실제 ViewModel이 필요하므로 생략
-        RoutineDetailScreen(
-            onBackClick = TODO(),
-            routineId = TODO(),
-            onNavigateToMyPage = TODO(),
-            onNavigateToHome = TODO(),
-            onMoreMenuClick = TODO(),
-            isNewRecord = TODO(),
-            modifier = TODO(),
-            viewModel = TODO(),
-            onNavigateToRecordRoutine = TODO()
+        RoutineDetailContent(
+            state = RoutineDetailUiState(),
+            onAction = {},
+            routineId = 1L,
+            onNavigateToRecordRoutine = { _, _ -> },
         )
     }
 }

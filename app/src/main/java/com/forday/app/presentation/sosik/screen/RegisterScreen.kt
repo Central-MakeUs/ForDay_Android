@@ -30,7 +30,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.dayn.forday.R
 import com.forday.app.core.designsystem.theme.ForDayTheme
-import com.forday.app.presentation.mypage.MyPageViewModel
+import com.forday.app.presentation.sosik.ReportAction
+import com.forday.app.presentation.sosik.ReportSideEffect
+import com.forday.app.presentation.sosik.ReportViewModel
 import timber.log.Timber
 
 private val ColorWhite        = Color(0xFFFFFFFF)
@@ -75,34 +77,19 @@ fun ReportScreenRoot(
     onComplete: () -> Unit,
     onNavigateToSosik: () -> Unit,
     userId: String? = null,
-    viewModel: MyPageViewModel = hiltViewModel()
+    viewModel: ReportViewModel = hiltViewModel()
 ) {
-    Timber.e("@@@@@@@#@#@#@userId : "+userId)
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showResultSheet by remember { mutableStateOf(false) }
 
-    // 신고 성공 → 바텀시트 표시
-    LaunchedEffect(uiState.reportPostingSuccess) {
-        if (uiState.reportPostingSuccess) {
-            showResultSheet = true
-            viewModel.resetReportPostingSuccess()
-        }
-    }
-
-    // 유저 신고 성공 → SosikScreen으로 이동 (토스트는 ViewModel에서 처리)
-    LaunchedEffect(uiState.reportUserSuccess) {
-        if (uiState.reportUserSuccess) {
-            viewModel.resetReportUserSuccess()
-            onNavigateToSosik()
-        }
-    }
-
-    // 차단 성공 → SosikScreen으로 이동
-    LaunchedEffect(uiState.blockUserSuccess) {
-        if (uiState.blockUserSuccess) {
-            viewModel.resetBlockUserSuccess()
-            viewModel.clearReportedWriterId()
-            onNavigateToSosik()
+    // SideEffect 처리
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is ReportSideEffect.ReportPostingSuccess -> showResultSheet = true
+                is ReportSideEffect.ReportUserSuccess -> onNavigateToSosik()
+                is ReportSideEffect.BlockUserSuccess -> onNavigateToSosik()
+            }
         }
     }
 
@@ -112,20 +99,15 @@ fun ReportScreenRoot(
         onBack = onBack,
         onSubmit = { reason ->
             if (userId != null) {
-                Timber.e("1@@@@@@@@@@@@@@@ "+userId)
-                viewModel.reportUser(userId, reason)
+                viewModel.onAction(ReportAction.ReportUser(userId, reason))
             } else {
-                Timber.e("2@@@@@@@@@@@@@@@ "+userId)
-                viewModel.reportPosting(recordId, reason)
+                viewModel.onAction(ReportAction.ReportPosting(recordId, reason))
             }
         },
         onComplete = { shouldBlock ->
             if (shouldBlock) {
-                // 차단 API 호출 → 결과는 LaunchedEffect(blockUserSuccess)에서 처리
-                viewModel.blockUser(uiState.reportedWriterId)
+                viewModel.onAction(ReportAction.BlockUser(uiState.reportedWriterId))
             } else {
-                // 차단 없이 완료 → 즉시 뒤로가기
-                viewModel.clearReportedWriterId()
                 onComplete()
             }
         }

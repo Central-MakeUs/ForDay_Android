@@ -27,26 +27,22 @@ class SplashViewModel @Inject constructor(
     private val _uiState: MutableStateFlow<SplashUiState> = MutableStateFlow(SplashUiState())
     val uiState: StateFlow<SplashUiState> = _uiState.toStateIn()
 
-    // cold start 시 1회만 호출됨 (ViewModel init)
-    init {
-//        Timber.e("@@@@@@@@@fetchAppVersionPolicy 호출")
-//        fetchAppVersionPolicy()
+    // ── MVI 단일 진입점 ──────────────────────────────────────────────
+    fun onAction(action: SplashAction) {
+        when (action) {
+            is SplashAction.SetRealRoute -> setRealRoute(action.realRoute)
+            is SplashAction.Dismiss -> dismiss()
+        }
     }
 
-    /**
-     * AppEntryPoint에서 OnboardingViewModel의 initialRoute가 결정되면 호출.
-     * API 응답과 realRoute 모두 준비된 시점에 effectiveRoute를 계산.
-     */
-    fun setRealRoute(realRoute: NavKey) {
+    // ── Private helpers ──────────────────────────────────────────────
+
+    private fun setRealRoute(realRoute: NavKey) {
         _uiState.update { it.copy(realRoute = realRoute) }
         computeEffectiveRoute()
     }
 
-    /**
-     * RECOMMEND 팝업에서 "나중에" 선택 시 호출.
-     * effectiveRoute를 realRoute로 변경 → AppEntryPoint에서 MainFlow 재시작 → Splash 스택 자동 제거.
-     */
-    fun dismiss() {
+    private fun dismiss() {
         val realRoute = _uiState.value.realRoute ?: return
         _uiState.update { it.copy(effectiveRoute = realRoute) }
     }
@@ -62,11 +58,9 @@ class SplashViewModel @Inject constructor(
             )
         }.httpCatch(tag = "fetchAppVersionPolicy") { errorData ->
             _uiState.update { it.copy(isLoading = false) }
-            Timber.e("@@@@@@@@@fetchAppVersionPolicy 호출 errorData : "+errorData)
             snackbarManager.show(errorData.message)
         }.collect { result ->
             val data = result.data
-            Timber.e("@@@@@@@@@fetchAppVersionPolicy 호출 data : "+data)
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -79,11 +73,6 @@ class SplashViewModel @Inject constructor(
         }
     }
 
-    /**
-     * isLoading 완료 + realRoute 설정이 모두 된 시점에 effectiveRoute를 결정.
-     * - updateType == NONE → 바로 realRoute로 이동
-     * - updateType != NONE → Splash(커스텀 스플래시 + 팝업) 경유
-     */
     private fun computeEffectiveRoute() {
         val state = _uiState.value
         if (state.isLoading || state.realRoute == null) return

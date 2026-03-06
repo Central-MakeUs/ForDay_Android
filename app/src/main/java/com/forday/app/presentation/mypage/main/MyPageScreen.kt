@@ -52,6 +52,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
 import com.forday.app.core.designsystem.theme.ForDayTheme
+import com.forday.app.presentation.mypage.MyPageAction
+import com.forday.app.presentation.mypage.MyPageUiState
 import com.forday.app.presentation.mypage.MyPageViewModel
 import com.dayn.forday.R
 import com.forday.app.core.designsystem.component.bottomsheet.HintBubble
@@ -101,9 +103,8 @@ data class HobbyCard(
     val rotation: Float = 0f
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MyPageScreen(
+fun MyPageScreenRoot(
     modifier: Modifier = Modifier,
     viewModel: MyPageViewModel,
     onProfileSetting: () -> Unit,
@@ -112,7 +113,49 @@ fun MyPageScreen(
     onRoutineFeedClick: (Int) -> Unit,
     onAddHobbyClick: () -> Unit,
     onNavigateToRecordRoutine: (Int?) -> Unit,
-    onDismiss: () -> Unit,  //바텀시트(로그인) x버튼 눌렀을 때
+    onDismiss: () -> Unit,
+    onBackClick: () -> Unit = {},
+    onNavigateToSosik: () -> Unit = {},
+    onReportUserClick: () -> Unit = {},
+    userId: String? = null,
+    recordAuthor: Boolean = true,
+    isUserPageEntry: Boolean = false,
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    MyPageScreen(
+        modifier = modifier,
+        state = state,
+        onAction = viewModel::onAction,
+        onProfileSetting = onProfileSetting,
+        onHobbyPhotoManagement = onHobbyPhotoManagement,
+        onAllSettingsClick = onAllSettingsClick,
+        onRoutineFeedClick = onRoutineFeedClick,
+        onAddHobbyClick = onAddHobbyClick,
+        onNavigateToRecordRoutine = onNavigateToRecordRoutine,
+        onDismiss = onDismiss,
+        onBackClick = onBackClick,
+        onNavigateToSosik = onNavigateToSosik,
+        onReportUserClick = onReportUserClick,
+        userId = userId,
+        recordAuthor = recordAuthor,
+        isUserPageEntry = isUserPageEntry,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MyPageScreen(
+    modifier: Modifier = Modifier,
+    state: MyPageUiState,
+    onAction: (MyPageAction) -> Unit,
+    onProfileSetting: () -> Unit,
+    onHobbyPhotoManagement: () -> Unit,
+    onAllSettingsClick: () -> Unit,
+    onRoutineFeedClick: (Int) -> Unit,
+    onAddHobbyClick: () -> Unit,
+    onNavigateToRecordRoutine: (Int?) -> Unit,
+    onDismiss: () -> Unit,
     onBackClick: () -> Unit = {},
     onNavigateToSosik: () -> Unit = {},
     onReportUserClick: () -> Unit = {},
@@ -121,23 +164,22 @@ fun MyPageScreen(
     isUserPageEntry: Boolean = false,
 ) {
     val context = LocalContext.current.applicationContext
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showSettingsMenu by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     var settingsButtonBottomPx by remember { mutableFloatStateOf(0f) }
     var containerTopPx by remember { mutableFloatStateOf(0f) }
     var selectedTab by remember { mutableStateOf(0) }
-    state.userHobbyTabUiModel?.hobbyItems?.map { it.hobbyId }
+    state.profile.hobbyTabs?.hobbyItems?.map { it.hobbyId }
     // 선택된 취미 ID들을 상위에서 관리 (무한 스크롤 시에도 같은 필터 유지)
     var selectedHobbyIds by remember { mutableStateOf<Set<Int?>>(emptySet()) }
-    state.userHobbyTabUiModel?.hobbyItems?.map { it.hobbyName }
+    state.profile.hobbyTabs?.hobbyItems?.map { it.hobbyName }
     // 스크롤 상태
     val scrollState = rememberScrollState()
 
     // 로딩 상태 (추가 로딩 중인지)
     var isLoadingMore by remember { mutableStateOf(false) }
     // 초기 로딩 상태: 핵심 데이터가 모두 도착할 때까지 스켈레톤 표시
-    val isInitialLoading = state.userInfo == null || state.userHobbyTabUiModel == null || state.userFeedUiModel == null
+    val isInitialLoading = state.profile.userInfo == null || state.profile.hobbyTabs == null || state.feed.container == null
     // 차단 확인 다이얼로그
     var showBlockDialog by remember { mutableStateOf(false) }
     // 바텀 시트 상태 - socialType이 "GUEST"일 때만 표시
@@ -145,24 +187,24 @@ fun MyPageScreen(
     var dismissedByUser by remember { mutableStateOf(false) }
 
     // 게스트 체크 - 최초 접속 시에만 바텀 시트 표시
-    LaunchedEffect(state.socialType, state.hasShownGuestBottomSheet) {
+    LaunchedEffect(state.auth.socialType, state.hasShownGuestBottomSheet) {
         // 최초 1회만 체크 (ViewModel에서 관리하는 플래그 사용)
-        if (!state.hasShownGuestBottomSheet && state.socialType != null) {
-            if (state.socialType == "GUEST" && !dismissedByUser) {
+        if (!state.hasShownGuestBottomSheet && state.auth.socialType != null) {
+            if (state.auth.socialType == "GUEST" && !dismissedByUser) {
                 showGuestBottomSheet = true
-                viewModel.markGuestBottomSheetShown()  // ViewModel에 표시했음을 기록
+                onAction(MyPageAction.MarkGuestBottomSheetShown)  // ViewModel에 표시했음을 기록
             }
         }
 
         // 이후 게스트가 아니게 되면 닫기 (로그인 완료 시)
-        if (state.socialType != null && state.socialType != "GUEST") {
+        if (state.auth.socialType != null && state.auth.socialType != "GUEST") {
             showGuestBottomSheet = false
         }
     }
 
     LaunchedEffect(state.blockUserSuccess) {
         if (state.blockUserSuccess) {
-            viewModel.resetBlockUserSuccess()
+            onAction(MyPageAction.ResetBlockUserSuccess)
         }
     }
 
@@ -172,30 +214,18 @@ fun MyPageScreen(
 
     LaunchedEffect(selectedTab) {
         if (selectedTab == 2) {
-            viewModel.getUserScrapList(
-                lastScrapId = null,
-                size = 24,
-                userId = userId
-            )
+            onAction(MyPageAction.SelectTab(tab = 2, userId = userId))
         }
     }
 
     LaunchedEffect(Unit) {
-        viewModel.getUserInfo(userId)
-        viewModel.getUserLoginInfo()  // 로그인 정보 (소셜 or 게스트)
-        viewModel.getUsersProgressHobbyTabs(userId)
-        viewModel.getUserFeedList(
-            hobbyIds = emptyList(),
-            lastRecordId = null,
-            feedSize = 24,
-            userId = userId
-        )
+        onAction(MyPageAction.LoadInitialData(userId))
     }
 
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
         onRefresh = {
-            viewModel.refresh(selectedTab, selectedHobbyIds.toList(), userId)
+            onAction(MyPageAction.Refresh(selectedTab, selectedHobbyIds.toList(), userId))
         },
         modifier = modifier
             .fillMaxSize()
@@ -226,18 +256,18 @@ fun MyPageScreen(
             } else {
 
                 ProfileSection(
-                    profileImageUrl = state.userInfo?.profileImageUrl,
-                    nickName = state.userInfo?.nickName,
-                    totalCollectedStickerCount = state.userInfo?.totalCollectedStickerCount,
+                    profileImageUrl = state.profile.userInfo?.profileImageUrl,
+                    nickName = state.profile.userInfo?.nickName,
+                    totalCollectedStickerCount = state.profile.userInfo?.totalCollectedStickerCount,
                 )
 
                 TabSection(
-                    inProgressCount = state.userHobbyTabUiModel?.inProgressCount,
-                    hobbyCardCount = state.userHobbyTabUiModel?.hobbyCardCount,
+                    inProgressCount = state.profile.hobbyTabs?.inProgressCount,
+                    hobbyCardCount = state.profile.hobbyTabs?.hobbyCardCount,
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
-                    scrapCount = state.scrapCount,
-                    socialType = state.socialType
+                    scrapCount = state.scrap.count,
+                    socialType = state.auth.socialType
                 )
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -247,77 +277,61 @@ fun MyPageScreen(
                 } else when (selectedTab) {
                     0 -> {
                         // ✅ 게스트 여부에 따라 다른 UI 표시
-                        if (state.socialType == "GUEST") {
+                        if (state.auth.socialType == "GUEST") {
                             GuestInProgressEmptyState(
                                 onKakaoLogin = {
-                                    viewModel.loginWithKakao(context, "KAKAO")
+                                    onAction(MyPageAction.LoginWithKakao(context, "KAKAO"))
                                 }
                             )
                         } else {
                             // ✅ 로그인 사용자: 활동 기록 여부에 따라 분기
-                            if (state.userFeedUiModel?.feedList?.isEmpty() == true) {
+                            if (state.feed.container?.feedList?.isEmpty() == true) {
                                 LoggedInEmptyState(
                                     selectedHobbyIds = selectedHobbyIds,
                                     onHobbySelectionChange = { newSelection ->  // ✅ 전달
                                         selectedHobbyIds = newSelection
-                                        viewModel.getUserFeedList(
-                                            hobbyIds = newSelection.toList(),
-                                            lastRecordId = null,
-                                            feedSize = 24,
-                                            userId = userId
-                                        )
+                                        onAction(MyPageAction.FilterByHobby(newSelection.toList(), userId))
                                     },
-                                    hobbyItems = state.userHobbyTabUiModel?.hobbyItems,
+                                    hobbyItems = state.profile.hobbyTabs?.hobbyItems,
                                     onAddHobbyClick = onAddHobbyClick,
                                     onRecordActivity = { hobbyId ->
                                         Timber.d("활동 기록하러 가기 클릭")
                                         onNavigateToRecordRoutine(hobbyId)
                                     },
-                                    inProgressCount = state.userHobbyTabUiModel?.inProgressCount
+                                    inProgressCount = state.profile.hobbyTabs?.inProgressCount
                                 )
                             } else {
-                                if (state.userFeedUiModel?.totalFeedCount == 0) {
+                                if (state.feed.container?.totalFeedCount == 0) {
                                     LoggedInEmptyState(
                                         selectedHobbyIds = selectedHobbyIds,
                                         onHobbySelectionChange = { newSelection ->  // ✅ 전달
                                             selectedHobbyIds = newSelection
-                                            viewModel.getUserFeedList(
-                                                hobbyIds = newSelection.toList(),
-                                                lastRecordId = null,
-                                                feedSize = 24,
-                                                userId = userId
-                                            )
+                                            onAction(MyPageAction.FilterByHobby(newSelection.toList(), userId))
                                         },
-                                        hobbyItems = state.userHobbyTabUiModel?.hobbyItems,
+                                        hobbyItems = state.profile.hobbyTabs?.hobbyItems,
                                         onAddHobbyClick = onAddHobbyClick,
                                         onRecordActivity = { hobbyId ->
                                             Timber.d("활동 기록하러 가기 클릭")
                                             onNavigateToRecordRoutine(hobbyId)
                                         },
-                                        inProgressCount = state.userHobbyTabUiModel?.inProgressCount
+                                        inProgressCount = state.profile.hobbyTabs?.inProgressCount
                                     )
                                 } else {
                                     InProgressTabContent(
-                                        hobbyItems = state.userHobbyTabUiModel?.hobbyItems,
-                                        feedList = state.userFeedUiModel?.feedList,
-                                        viewModel = viewModel,
+                                        hobbyItems = state.profile.hobbyTabs?.hobbyItems,
+                                        feedList = state.feed.container?.feedList,
                                         selectedHobbyIds = selectedHobbyIds,
                                         onHobbySelectionChange = { newSelection ->
                                             selectedHobbyIds = newSelection
-                                            viewModel.getUserFeedList(
-                                                hobbyIds = newSelection.toList(),
-                                                lastRecordId = null,
-                                                feedSize = 24,
-                                                userId = userId
-                                            )
+                                            onAction(MyPageAction.FilterByHobby(newSelection.toList(), userId))
                                         },
                                         onStickerClick = { feedUiModel ->
                                             Timber.d("Sticker clicked: ${feedUiModel.recordId}")
                                             onRoutineFeedClick(feedUiModel.recordId)
                                         },
-                                        feedCount = state.userFeedUiModel?.totalFeedCount,
+                                        feedCount = state.feed.container?.totalFeedCount,
                                         onAddHobbyClick = onAddHobbyClick,
-                                        inProgressCount = state.userHobbyTabUiModel?.inProgressCount
+                                        inProgressCount = state.profile.hobbyTabs?.inProgressCount
                                     )
                                 }
 
@@ -326,7 +340,7 @@ fun MyPageScreen(
                     }
                     1 -> HobbyCardTabContent()
                     2 -> ScrapTabContent(
-                        scrapListUiModel = state.scrapListUiModel,
+                        scrapListUiModel = state.scrap.list,
                         onScrapItemClick = { scrapItem ->
                             Timber.d("Scrap clicked: ${scrapItem.recordId}")
                             onRoutineFeedClick(scrapItem.recordId)
@@ -385,7 +399,7 @@ fun MyPageScreen(
                     onAllSettingsClick()
                     showSettingsMenu = false
                 },
-                socialType = state.socialType,
+                socialType = state.auth.socialType,
                 isMine = recordAuthor,
                 onBlockClick = {
                     showBlockDialog = true
@@ -400,11 +414,11 @@ fun MyPageScreen(
         // 차단 확인 다이얼로그
         if (showBlockDialog) {
             BlockUserConfirmDialog(
-                nickname = state.userInfo?.nickName ?: "",
+                nickname = state.profile.userInfo?.nickName ?: "",
                 onDismiss = { showBlockDialog = false },
                 onConfirm = {
                     showBlockDialog = false
-                    viewModel.blockUser(userId ?: "", state.userInfo?.nickName ?: "")
+                    onAction(MyPageAction.BlockUser(userId ?: "", state.profile.userInfo?.nickName ?: ""))
                 }
 
             )
@@ -420,7 +434,7 @@ fun MyPageScreen(
                 onKakaoLogin = {
                     showGuestBottomSheet = false  // ✅ 즉시 닫기
                     dismissedByUser = true
-                    viewModel.loginWithKakao(context, "KAKAO")
+                    onAction(MyPageAction.LoginWithKakao(context, "KAKAO"))
                 }
             )
         }
@@ -1247,7 +1261,6 @@ fun InProgressTabContent(
     hobbyItems: List<HobbyUiModel>?,
     feedList: List<FeedUiModel>?,
     feedCount: Int?,
-    viewModel: MyPageViewModel,
     selectedHobbyIds: Set<Int?>,
     onHobbySelectionChange: (Set<Int?>) -> Unit,
     onStickerClick: (FeedUiModel) -> Unit,
@@ -2319,15 +2332,15 @@ private fun CalendarGridSkeletonSection() {
 fun MyPageScreenPreview() {
     ForDayTheme {
         MyPageScreen(
-            modifier = TODO(),
-            viewModel = TODO(),
-            onProfileSetting = TODO(),
-            onHobbyPhotoManagement = TODO(),
-            onAllSettingsClick = TODO(),
-            onRoutineFeedClick = TODO(),
-            onAddHobbyClick = TODO(),
-            onDismiss = TODO(),
-            onNavigateToRecordRoutine = TODO()
+            state = MyPageUiState(),
+            onAction = {},
+            onProfileSetting = {},
+            onHobbyPhotoManagement = {},
+            onAllSettingsClick = {},
+            onRoutineFeedClick = {},
+            onAddHobbyClick = {},
+            onDismiss = {},
+            onNavigateToRecordRoutine = {}
         )
     }
 }

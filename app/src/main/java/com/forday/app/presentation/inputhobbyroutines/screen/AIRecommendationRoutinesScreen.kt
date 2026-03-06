@@ -42,6 +42,7 @@ import com.dayn.forday.R
 import com.forday.app.core.designsystem.component.state.ErrorContent
 import com.forday.app.core.designsystem.component.state.ErrorDataUiState
 import com.forday.app.presentation.inputhobbyroutines.AiRoutineItemState
+import com.forday.app.presentation.inputhobbyroutines.InputRoutinesAction
 import com.forday.app.presentation.inputhobbyroutines.InputRoutinesAndAiRecommendViewModel
 import timber.log.Timber
 
@@ -62,12 +63,12 @@ fun AIRecommendationRoutinesScreenRoot(
     viewModel.logEvent(AnalyticsEvents.AI_RECOMMEND_SCREEN)
 
     LaunchedEffect(Unit) {
-        viewModel.getAiRecommendedRoutines(hobbyId)
+        viewModel.onAction(InputRoutinesAction.GetAiRecommendedRoutines(hobbyId))
     }
 
     LaunchedEffect(state.aiRoutineList.size) {
         if (state.aiRoutineList.size == 3) {
-            viewModel.saveAiRoutines(state.aiRoutineList)
+            viewModel.onAction(InputRoutinesAction.SaveAiRoutines(state.aiRoutineList))
             viewModel.logEvent(AnalyticsEvents.aiRecommendationShown(state.selectedHobbyName, state.aiCallCount))
         }
         Timber.d("@@@ Root에서 감지된 루틴 변경: ${state.aiRoutineList.size}개")
@@ -81,7 +82,7 @@ fun AIRecommendationRoutinesScreenRoot(
             onAction = {
                 when (errorData.errorType) {
                     ErrorDataUiState.ErrorType.TYPE_RETRY ->
-                        viewModel.getAiRecommendedRoutines(hobbyId)
+                        viewModel.onAction(InputRoutinesAction.GetAiRecommendedRoutines(hobbyId))
                     ErrorDataUiState.ErrorType.TYPE_BACK ->
                         onBackClick()
                 }
@@ -98,7 +99,7 @@ fun AIRecommendationRoutinesScreenRoot(
             },
             onNextClick = { selectedRoutine ->
                 viewModel.logEvent(AnalyticsEvents.aiRecommendSelectedRoutine(selectedRoutine.content))
-                viewModel.setSelectedAiRoutine(selectedRoutine)
+                viewModel.onAction(InputRoutinesAction.SetSelectedAiRoutine(selectedRoutine))
                 onNextClick()
             },
             hobbyId = hobbyId,
@@ -216,7 +217,7 @@ fun AIRecommendationRoutinesScreen(
 
                         if (apiCallCount < maxApiCalls) {
                             Timber.d("🔘 API 호출 요청")
-                            viewModel.getAiRecommendedRoutines(hobbyId)
+                            viewModel.onAction(InputRoutinesAction.GetAiRecommendedRoutines(hobbyId))
                         } else {
                             Timber.d("🔘 최대 호출 횟수 도달")
                         }

@@ -4,4 +4,7 @@ import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
 @Serializable
-data object ProfileSetting : NavKey
+data class ProfileSetting(
+    val profileImageUrl: String? = null,
+    val currentNickname: String? = null,
+) : NavKey

@@ -28,7 +28,18 @@ class ModifyRoutineViewModel @Inject constructor(
     private val _uiState: MutableStateFlow<RoutinesUiState> = MutableStateFlow(RoutinesUiState())
     val uiState: StateFlow<RoutinesUiState> = _uiState.toStateIn()
 
-    fun fetchHobbyRoutineList(hobbyId: Long?) = viewModelScope.launch {  // 활동 리스트 조회
+    // ── MVI 단일 진입점 ──────────────────────────────────────────────
+    fun onAction(action: ModifyRoutineAction) {
+        when (action) {
+            is ModifyRoutineAction.FetchHobbyRoutineList -> fetchHobbyRoutineList(action.hobbyId)
+            is ModifyRoutineAction.ModifyRoutine -> modifyRoutine(action.routineId, action.content)
+            is ModifyRoutineAction.DeleteRoutine -> deleteRoutine(action.routineId)
+        }
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────
+
+    private fun fetchHobbyRoutineList(hobbyId: Long?) = viewModelScope.launch {
         if (hobbyId == null) {
             Timber.w("fetchHobbyRoutineList: hobbyId is null")
             _uiState.update {
@@ -45,65 +56,53 @@ class ModifyRoutineViewModel @Inject constructor(
         flow {
             emit(getHobbyRoutineListUseCase(hobbyId))
         }.httpCatch(tag = "fetchHobbyRoutineList") { errorData ->
+            _uiState.update { it.copy(errorData = errorData) }
+        }.collect { data ->
             _uiState.update {
                 it.copy(
-                    errorData = errorData
+                    isLoading = false,
+                    routines = data.data.routines.toUiModelList(),
+                    errorData = null,
                 )
             }
         }
-            .collect { data ->
-                Timber.e("@####@#@#@#throwable " + data.data.routines.map { it.isAiRecommended })
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        routines = data.data.routines.toUiModelList(),
-                        errorData = null,
-                    )
-                }
-            }
     }
 
-    fun modifyRoutine(routineId: Long, content: String) = viewModelScope.launch {
+    private fun modifyRoutine(routineId: Long, content: String) = viewModelScope.launch {
         flow {
             emit(modifyHobbyRoutineUseCase(routineId, content))
-        }
-            .httpCatch(tag = "modifyRoutine") { errorData ->
-                snackbarManager.show(errorData.message)
-            }
-            .collect { data ->
-                _uiState.update { currentState ->
-                    currentState.copy(
-                        routines = currentState.routines.map { routine ->
-                            if (routine.routineId == routineId) {
-                                routine.copy(content = content)
-                            } else {
-                                routine
-                            }
+        }.httpCatch(tag = "modifyRoutine") { errorData ->
+            snackbarManager.show(errorData.message)
+        }.collect { data ->
+            _uiState.update { currentState ->
+                currentState.copy(
+                    routines = currentState.routines.map { routine ->
+                        if (routine.routineId == routineId) {
+                            routine.copy(content = content)
+                        } else {
+                            routine
                         }
-                    )
-                }
-                snackbarManager.show(data.data.message)
+                    }
+                )
             }
+            snackbarManager.show(data.data.message)
+        }
     }
 
-    fun deleteRoutine(routineId: Long) = viewModelScope.launch {
+    private fun deleteRoutine(routineId: Long) = viewModelScope.launch {
         flow {
             emit(deleteHobbyRoutineUseCase(routineId))
         }.httpCatch(tag = "deleteRoutine") { errorData ->
             snackbarManager.show(errorData.message)
-        }
-            .collect { data ->
-                Timber.e("deleteRoutine data.data.message : " + data.data.message)
-                // 성공 시 해당 routineId를 가진 항목 삭제
-                _uiState.update { currentState ->
-                    currentState.copy(
-                        routines = currentState.routines.filter { routine ->
-                            routine.routineId != routineId
-                        }
-                    )
-                }
-                snackbarManager.show(data.data.message)
+        }.collect { data ->
+            _uiState.update { currentState ->
+                currentState.copy(
+                    routines = currentState.routines.filter { routine ->
+                        routine.routineId != routineId
+                    }
+                )
             }
+            snackbarManager.show(data.data.message)
+        }
     }
-
 }

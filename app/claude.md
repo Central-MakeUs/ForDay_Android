@@ -415,6 +415,148 @@ fun MyScreenRoot(
 
 ---
 
+## 포데이 4대 아키텍처 원칙
+
+> 새 화면을 만들거나 기존 화면을 수정할 때 반드시 준수해야 할 원칙
+
+### 원칙 1: MVI 구조 (Action / State / SideEffect)
+
+모든 ViewModel은 단일 진입점 `onAction()` 패턴을 따릅니다.
+
+```kotlin
+// Action 정의 (sealed interface)
+sealed interface MyAction {
+    data class LoadData(val id: Long) : MyAction
+    data object Refresh : MyAction
+}
+
+// ViewModel
+@HiltViewModel
+class MyViewModel @Inject constructor(...) : BaseViewModel<MySideEffect>() {
+    private val _uiState = MutableStateFlow(MyUiState())
+    val uiState: StateFlow<MyUiState> = _uiState.toStateIn()
+
+    fun onAction(action: MyAction) {
+        when (action) {
+            is MyAction.LoadData -> loadData(action.id)
+            is MyAction.Refresh -> refresh()
+        }
+    }
+
+    // 모든 비즈니스 메서드는 private
+    private fun loadData(id: Long) = viewModelScope.launch { ... }
+}
+```
+
+**규칙:**
+- `onAction()`만 public (logEvent 제외)
+- Action은 `sealed interface`로 정의
+- 일회성 이벤트(네비게이션 등)는 `SideEffect` + `Channel`로 처리
+- Boolean 플래그 대신 SideEffect 사용 (reset 누락 방지)
+
+### 원칙 2: Stateless UI / Root-Screen 분리
+
+```kotlin
+// Root: ViewModel 연결, SideEffect 수집
+@Composable
+fun MyScreenRoot(viewModel: MyViewModel, onNext: () -> Unit) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) { is MySideEffect.Success -> onNext() }
+        }
+    }
+
+    MyScreen(
+        data = state.data,
+        onAction = viewModel::onAction
+    )
+}
+
+// Screen: Pure Composable (ViewModel 참조 없음, Preview 가능)
+@Composable
+fun MyScreen(data: List<Item>, onAction: (MyAction) -> Unit) { ... }
+
+@Preview
+@Composable
+fun MyScreenPreview() { MyScreen(data = emptyList(), onAction = {}) }
+```
+
+**규칙:**
+- Screen은 ViewModel을 절대 참조하지 않음
+- 모든 Screen에 동작하는 `@Preview` 함수 작성 (TODO() 금지)
+- Navigation graph에서는 항상 Root를 호출
+
+### 원칙 3: Navigation 3 스코핑 규칙
+
+```kotlin
+// 개별 화면 ViewModel: nonTabEntry 내부에서 hiltViewModel()
+nonTabEntry<MyScreen> {
+    val viewModel: MyViewModel = hiltViewModel()  // NavEntry 스코프
+    MyScreenRoot(viewModel = viewModel, ...)
+}
+
+// 공유 ViewModel: MainFlow 레벨에서 hiltViewModel()
+val settingsViewModel: SettingsViewModel = hiltViewModel()  // MainFlow 스코프
+settingsGraph(navigator, settingsViewModel)
+```
+
+**규칙:**
+- 단일 화면 ViewModel → `nonTabEntry` 내부에서 `hiltViewModel()` (화면 이탈 시 자동 정리)
+- 여러 화면에서 공유하는 ViewModel → MainFlow 레벨에서 생성 후 전달
+- Activity 스코프 ViewModel 금지 (메모리 누수 방지)
+
+### 원칙 4: 비즈니스 로직 위임
+
+```
+ViewModel (상태 관리 + 오케스트레이션)
+    ↓ 호출
+UseCase (단일 비즈니스 로직)
+    ↓ 호출
+Repository (데이터 접근)
+```
+
+**규칙:**
+- ViewModel은 상태 관리와 UseCase 호출만 담당
+- 복잡한 변환/검증 로직은 UseCase 또는 Mapper로 위임
+- 이미지 처리 등 Android SDK 의존 로직은 Screen 레벨 유틸 함수 허용
+- ViewModel에 `@Inject` 되는 UseCase는 실제 사용하는 것만 (미사용 주입 금지)
+
+### GlobalEventBus (전역 이벤트 처리)
+
+```kotlin
+// SnackbarManager (@Singleton) → 모든 ViewModel에서 주입
+snackbarManager.show("에러 메시지")          // 토스트 표시
+snackbarManager.navigateToLogin()            // 로그인 화면 이동
+
+// MainFlow에서 단일 LaunchedEffect로 수집
+snackbarHostViewModel.sideEffects.collect { effect ->
+    when (effect) {
+        is AppSideEffect.ShowSnackbar -> toastMessage = effect.message
+        is AppSideEffect.NavigateToLogin -> {
+            authManager.resetForNewSession()
+            navigator.resetTo(Login)
+        }
+    }
+}
+```
+
+**규칙:**
+- 네트워크 에러는 `httpCatch` → `snackbarManager.show()`로 처리
+- 세션 만료는 `AuthManager.events` → `snackbarManager.navigateToLogin()`
+- 개별 ViewModel에서 직접 네비게이션하지 않음 (GlobalEventBus 통해 처리)
+
+### UiState 관리 규칙
+
+- 모든 필드에 기본값 제공
+- 사용하지 않는 필드는 즉시 제거 (dead code 금지)
+- 관련 필드는 중첩 data class로 그룹화
+- UI에서 읽지 않는 필드는 State에 넣지 않음
+- 에러 메시지는 `SnackbarManager`로 처리 (UiState에 error 필드 불필요)
+
+---
+
 ## 주요 컴포넌트
 
 ### OnboardingLayout (공통 레이아웃)
@@ -867,4 +1009,4 @@ io.github.takahirom.roborazzi:roborazzi
 
 프로젝트 관련 문의사항이나 이슈는 개발팀에 문의하세요.
 
-**최종 업데이트**: 2026-01-25
+**최종 업데이트**: 2026-03-06

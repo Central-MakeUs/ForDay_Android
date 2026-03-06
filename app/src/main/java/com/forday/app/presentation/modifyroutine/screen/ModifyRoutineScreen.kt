@@ -42,6 +42,7 @@ import com.dayn.forday.R
 import com.forday.app.core.designsystem.component.state.ErrorContent
 import com.forday.app.core.designsystem.component.state.ErrorDataUiState
 import com.forday.app.core.designsystem.toast.ErrorToast
+import com.forday.app.presentation.modifyroutine.ModifyRoutineAction
 import com.forday.app.presentation.modifyroutine.ModifyRoutineViewModel
 import com.forday.app.presentation.modifyroutine.RoutineUiModel
 import kotlinx.coroutines.delay
@@ -74,7 +75,7 @@ fun ModifyRoutineScreenRoot(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.fetchHobbyRoutineList(hobbyId)
+        viewModel.onAction(ModifyRoutineAction.FetchHobbyRoutineList(hobbyId))
     }
 
     val errorData = state.errorData
@@ -84,7 +85,7 @@ fun ModifyRoutineScreenRoot(
             onAction = {
                 when (errorData.errorType) {
                     ErrorDataUiState.ErrorType.TYPE_RETRY ->
-                        viewModel.fetchHobbyRoutineList(hobbyId)
+                        viewModel.onAction(ModifyRoutineAction.FetchHobbyRoutineList(hobbyId))
 
                     ErrorDataUiState.ErrorType.TYPE_BACK ->
                         onBack()
@@ -117,7 +118,7 @@ fun ModifyRoutineScreenRoot(
             // 삭제 확인 - 실제로 삭제
             onConfirmDelete = {
                 selectedRoutineForDelete?.let { routine ->
-                    viewModel.deleteRoutine(routine.routineId)  // 여기서 삭제!
+                    viewModel.onAction(ModifyRoutineAction.DeleteRoutine(routine.routineId))
                     showDeleteDialog = false
                     selectedRoutineForDelete = null
                     showToast = true
@@ -137,7 +138,7 @@ fun ModifyRoutineScreenRoot(
             },
             onConfirmEdit = {
                 selectedRoutineForEdit?.let { routine ->
-                    viewModel.modifyRoutine(routine.routineId, editText)
+                    viewModel.onAction(ModifyRoutineAction.ModifyRoutine(routine.routineId, editText))
                     showEditDialog = false
                     selectedRoutineForEdit = null
                     editText = ""

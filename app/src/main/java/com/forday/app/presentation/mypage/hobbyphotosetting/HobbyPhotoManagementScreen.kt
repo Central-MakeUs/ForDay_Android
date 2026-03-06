@@ -81,7 +81,7 @@ import com.forday.app.presentation.mypage.main.getHobbyIconByName
 import com.forday.app.core.designsystem.component.clickable.rememberThrottledClick
 import com.forday.app.core.designsystem.component.clickable.NoRippleInteractionSource
 import com.forday.app.core.designsystem.theme.ForDayTheme
-import com.forday.app.presentation.mypage.MyPageViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -130,10 +130,11 @@ enum class PhotoSourceType {
 fun HobbyPhotoManagementScreenRoot(
     onBackClick: () -> Unit,
     onCompleteClick: () -> Unit,
-    viewModel: MyPageViewModel
+    viewModel: HobbyPhotoViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val onAction = viewModel::onAction
 
     // 상태 관리
     var selectedHobbyForUpload by remember { mutableStateOf<HobbyCategory?>(null) }
@@ -143,16 +144,10 @@ fun HobbyPhotoManagementScreenRoot(
 
     // ViewModel에서 초기 데이터 로드
     LaunchedEffect(Unit) {
-        viewModel.getUserInfo(null)
-        viewModel.getUsersProgressHobbyTabs(null)
-        viewModel.getUserFeedList(
-            hobbyIds = emptyList(),
-            lastRecordId = null,
-            feedSize = 100
-        )
+        onAction(HobbyPhotoAction.LoadInitialData)
     }
 
-    // ✅ 이미지 업로드 시작 함수
+    // 이미지 업로드 시작 함수
     fun startHobbyPhotoUpload(uri: Uri, hobby: HobbyCategory) {
         selectedImageUri = uri
         selectedHobbyForUpload = hobby
@@ -161,7 +156,6 @@ fun HobbyPhotoManagementScreenRoot(
 
         Timber.d("Starting hobby photo upload for: ${hobby.name}")
 
-        // Presigned URL 요청
         val imageInfo = listOf(
             mapOf(
                 "fileName" to getFileName(context, uri),
@@ -171,10 +165,10 @@ fun HobbyPhotoManagementScreenRoot(
             )
         )
 
-        viewModel.getPresignedUrl(imageInfo)
+        onAction(HobbyPhotoAction.GetPresignedUrl(imageInfo))
     }
 
-    // ✅ Photo Picker (Android 13+) - 단일 선택
+    // Photo Picker (Android 13+)
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -186,7 +180,7 @@ fun HobbyPhotoManagementScreenRoot(
         }
     }
 
-    // ✅ Legacy Gallery (Android 12 이하) - 단일 선택
+    // Legacy Gallery (Android 12 이하)
     val legacyGalleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -198,11 +192,10 @@ fun HobbyPhotoManagementScreenRoot(
         }
     }
 
-    // ✅ Presigned URL 받은 후 S3 업로드
-    LaunchedEffect(state.imageUploadState) {
-        state.imageUploadState?.let { uploadState ->
+    // Presigned URL 받은 후 S3 업로드
+    LaunchedEffect(state.image.uploadState) {
+        state.image.uploadState.let { uploadState ->
             if (isUploading) {
-                // uploadUrl이 있고 아직 업로드 시작 전인 경우
                 if (!uploadState.isUploading &&
                     !uploadState.isSuccess &&
                     uploadState.uploadUrl != null) {
@@ -214,12 +207,12 @@ fun HobbyPhotoManagementScreenRoot(
 
                         if (file != null) {
                             Timber.d("Starting S3 upload for file: ${file.name}")
-                            viewModel.uploadImageToS3(
+                            onAction(HobbyPhotoAction.UploadImageToS3(
                                 file = file,
                                 uploadUrl = uploadState.uploadUrl,
                                 contentType = getContentType(context, uri),
                                 order = 1
-                            )
+                            ))
                         } else {
                             Timber.e("Failed to convert URI to File: $uri")
                             isUploading = false
@@ -236,11 +229,11 @@ fun HobbyPhotoManagementScreenRoot(
                     // 해당 취미의 대표사진 설정
                     selectedHobbyForUpload?.let { hobby ->
                         Timber.d("Setting hobby thumbnail for: ${hobby.name}")
-                        viewModel.setHobbyMainImage(
+                        onAction(HobbyPhotoAction.SetHobbyMainImage(
                             hobbyId = hobby.id.toLongOrNull(),
                             imageUrl = uploadState.fileUrl,
                             recordId = null
-                        )
+                        ))
                     }
 
                     // 3초 후 완료 상태 초기화
@@ -252,7 +245,7 @@ fun HobbyPhotoManagementScreenRoot(
     }
 
     // 취미 목록
-    val hobbies = state.userHobbyTabUiModel?.hobbyItems?.map { hobbyUiModel ->
+    val hobbies = state.feed.hobbyTabs?.hobbyItems?.map { hobbyUiModel ->
         HobbyCategory(
             id = hobbyUiModel.hobbyId.toString(),
             name = hobbyUiModel.hobbyName ?: "",
@@ -261,12 +254,12 @@ fun HobbyPhotoManagementScreenRoot(
         )
     } ?: emptyList()
 
-    // 피드 목록 - selectedHobbyForUpload 사용
-    val photos = state.userFeedUiModel?.feedList?.map { feedUiModel ->
+    // 피드 목록
+    val photos = state.feed.feedContainer?.feedList?.map { feedUiModel ->
         Photo(
             id = feedUiModel.recordId.toString(),
             imageUrl = feedUiModel.url,
-            hobbyId = selectedHobbyForUpload?.id ?: "",  // ✅ 선택된 취미의 ID
+            hobbyId = selectedHobbyForUpload?.id ?: "",
             quote = feedUiModel.memo ?: "",
             hasGradient = feedUiModel.url.isEmpty(),
             gradientColors = when (feedUiModel.stickerIconRes) {
@@ -298,14 +291,12 @@ fun HobbyPhotoManagementScreenRoot(
         hobbies = hobbies,
         photos = photos,
         onBackClick = {
-            // ✅ 뒤로가기 시 전체 피드 재로드
             selectedHobbyForUpload = null
-            viewModel.getUserFeedList(
+            onAction(HobbyPhotoAction.LoadFeedList(
                 hobbyIds = emptyList(),
                 lastRecordId = null,
-                feedSize = 100,
-                userId = null
-            )
+                feedSize = 100
+            ))
             onBackClick()
         },
         onCompleteClick = onCompleteClick,
@@ -315,7 +306,6 @@ fun HobbyPhotoManagementScreenRoot(
                     Timber.d("Album selected for hobby: ${hobby.name}")
                     selectedHobbyForUpload = hobby
 
-                    // ✅ 이제 photoPickerLauncher가 정의되어 있음
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         photoPickerLauncher.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -329,13 +319,11 @@ fun HobbyPhotoManagementScreenRoot(
                 }
                 PhotoSourceType.ACTIVITY -> {
                     Timber.d("Activity selection for hobby: ${hobby.name}")
-
-                    viewModel.getUserFeedList(
+                    onAction(HobbyPhotoAction.LoadFeedList(
                         hobbyIds = listOf(hobby.id.toIntOrNull()),
                         lastRecordId = null,
-                        feedSize = 12,
-                        userId = null
-                    )
+                        feedSize = 12
+                    ))
                 }
             }
         },
@@ -344,19 +332,18 @@ fun HobbyPhotoManagementScreenRoot(
         },
         onExitSelectionMode = {
             selectedHobbyForUpload = null
-            viewModel.getUserFeedList(
+            onAction(HobbyPhotoAction.LoadFeedList(
                 hobbyIds = emptyList(),
                 lastRecordId = null,
-                feedSize = 100,
-                userId = null
-            )
+                feedSize = 100
+            ))
         },
         onCompletePhotoSelection = { hobbyId, recordId ->
-            viewModel.setHobbyMainImage(
+            onAction(HobbyPhotoAction.SetHobbyMainImage(
                 hobbyId = hobbyId.toLongOrNull(),
                 imageUrl = null,
                 recordId = recordId.toLongOrNull()
-            )
+            ))
         },
         isUploading = isUploading,
         uploadComplete = uploadComplete
